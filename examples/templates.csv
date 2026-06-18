@@ -1,0 +1,4 @@
+BRAND,Language,Template,Template Name,Template Body,Body Variables,Body Parameters,Template Type,Automation
+AB,EN,Sample follow up,Following up on your sample,"Hello [FIRST NAME], did you enjoy your sample from [STORE NAME]?",FIRST_NAME;STORE_NAME,,MARKETING,Post Sample Follow-up
+BNT,FR,Thank you,Thank you,"Merci [FIRST NAME] pour votre visite.",FIRST_NAME,,MARKETING,NPS
+CH,DE,Back in stock,(W) Beauty - Product Available,"Hallo [FIRST NAME], Ihr Produkt ist jetzt in [STORE NAME] verfugbar.",FIRST_NAME;STORE_NAME,,UTILITY,Back In Stock

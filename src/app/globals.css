@@ -1,0 +1,54 @@
+@import "tailwindcss";
+
+@theme inline {
+  --font-sans: "Geist", "Geist Fallback", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Geist Mono", "Geist Mono Fallback", ui-monospace, monospace;
+  --color-background: #ffffff;
+  --color-foreground: #111111;
+  --color-card: #ffffff;
+  --color-card-foreground: #111111;
+  --color-popover: #ffffff;
+  --color-popover-foreground: #111111;
+  --color-primary: #963cff;
+  --color-primary-foreground: #ffffff;
+  --color-secondary: #f3f3f3;
+  --color-secondary-foreground: #222222;
+  --color-muted: #f3f3f3;
+  --color-muted-foreground: #717171;
+  --color-accent: #eaf6ff;
+  --color-accent-foreground: #111111;
+  --color-destructive: #e71919;
+  --color-destructive-foreground: #ffffff;
+  --color-border: #c4c4c4;
+  --color-input: #ffffff;
+  --color-ring: #963cff;
+  --radius: 0.5rem;
+  --radius-sm: calc(var(--radius) * 0.75);
+  --radius-md: var(--radius);
+  --radius-lg: calc(var(--radius) * 1.25);
+}
+
+* {
+  border-color: var(--color-border);
+}
+
+html {
+  background: var(--color-background);
+  color: var(--color-foreground);
+}
+
+body {
+  min-height: 100vh;
+  background: var(--color-background);
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+::selection {
+  background: rgb(150 60 255 / 22%);
+}

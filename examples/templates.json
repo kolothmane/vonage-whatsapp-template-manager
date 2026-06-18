@@ -1,0 +1,35 @@
+[
+  {
+    "BRAND": "AB",
+    "Language": "EN",
+    "Template": "Sample follow up",
+    "Template Name": "Following up on your sample",
+    "Template Body": "Hello [FIRST NAME], did you enjoy your sample from [STORE NAME]?",
+    "Body Variables": "FIRST_NAME;STORE_NAME",
+    "Body Parameters": "",
+    "Template Type": "MARKETING",
+    "Automation": "Post Sample Follow-up"
+  },
+  {
+    "BRAND": "BNT",
+    "Language": "FR",
+    "Template": "Thank you",
+    "Template Name": "Thank you",
+    "Template Body": "Merci [FIRST NAME] pour votre visite.",
+    "Body Variables": "FIRST_NAME",
+    "Body Parameters": "",
+    "Template Type": "MARKETING",
+    "Automation": "NPS"
+  },
+  {
+    "BRAND": "CH",
+    "Language": "DE",
+    "Template": "Back in stock",
+    "Template Name": "(W) Beauty - Product Available",
+    "Template Body": "Hallo [FIRST NAME], Ihr Produkt ist jetzt in [STORE NAME] verfugbar.",
+    "Body Variables": "FIRST_NAME;STORE_NAME",
+    "Body Parameters": "",
+    "Template Type": "UTILITY",
+    "Automation": "Back In Stock"
+  }
+]
