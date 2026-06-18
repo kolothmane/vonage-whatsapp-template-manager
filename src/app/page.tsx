@@ -49,8 +49,8 @@ export default async function DashboardPage() {
   return (
     <div className="grid gap-7">
       <section className="flex flex-col gap-2">
-        <h1 className="text-[48px] font-medium leading-tight">Operations Dashboard</h1>
-        <p className="max-w-4xl text-[20px] text-[#333]">
+        <h1 className="text-3xl font-semibold leading-tight">Operations Dashboard</h1>
+        <p className="max-w-4xl break-words text-base text-[#333]">
           Manage validation, duplicate blocking, transformations and large-scale submissions across connected WABAs.
         </p>
       </section>

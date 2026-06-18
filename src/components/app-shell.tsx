@@ -46,18 +46,11 @@ const sections = [
   },
 ] as const;
 
-function VonageLogo() {
+function ProductBrand() {
   return (
-    <div className="flex items-start gap-4">
-      <span className="relative mt-0.5 block h-9 w-10 shrink-0" aria-hidden="true">
-        <span className="absolute left-0 top-0 h-[19px] w-[15px] bg-black [clip-path:polygon(0_0,58%_0,100%_100%,42%_100%)]" />
-        <span className="absolute left-[11px] top-0 h-9 w-[18px] bg-black [clip-path:polygon(38%_0,100%_0,55%_100%,0_100%)]" />
-        <span className="absolute left-[26px] top-0 h-[19px] w-[14px] bg-black [clip-path:polygon(38%_0,100%_0,55%_100%,0_100%)]" />
-      </span>
-      <div>
-        <div className="text-[25px] font-semibold leading-8 tracking-normal">VONAGE APIs</div>
-        <div className="mt-0.5 text-[16px] text-[#343434]">WhatsApp Template Manager</div>
-      </div>
+    <div>
+      <div className="text-[21px] font-semibold leading-7">WABA BR</div>
+      <div className="text-[13px] text-[#454545]">WhatsApp Template Manager</div>
     </div>
   );
 }
@@ -77,7 +70,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         >
           <Menu className="h-5 w-5" />
         </button>
-        <div className="text-xl font-semibold">VONAGE APIs</div>
+        <div className="text-lg font-semibold">WABA BR</div>
       </header>
 
       {open ? (
@@ -91,7 +84,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
       <aside
         className={cn(
-          "fixed inset-y-0 left-0 z-50 flex w-[min(392px,88vw)] flex-col bg-[#f4f4f4] transition-transform duration-200 lg:translate-x-0",
+          "fixed inset-y-0 left-0 z-50 flex w-[min(272px,88vw)] flex-col bg-[#f4f4f4] transition-transform duration-200 lg:translate-x-0",
           open ? "translate-x-0" : "-translate-x-full",
         )}
       >
@@ -104,20 +97,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <X className="h-5 w-5" />
         </button>
 
-        <div className="px-[30px] pb-6 pt-[40px]">
-          <VonageLogo />
+        <div className="px-5 pb-4 pt-6">
+          <ProductBrand />
 
-          <div className="mt-9 text-[20px]">Import mode</div>
-          <div className="mt-1 inline-flex rounded-[5px] bg-[#963cff] px-3 py-1 text-[17px] font-semibold text-white">
+          <div className="mt-6 text-[15px]">Import mode</div>
+          <div className="mt-1 inline-flex rounded-[5px] bg-[#963cff] px-2.5 py-1 text-[13px] font-semibold text-white">
             STRICT MODE
           </div>
 
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto border-t border-transparent px-[30px] pb-5 pt-3 [scrollbar-color:#8d8d8d_transparent] [scrollbar-width:auto]">
+        <div className="min-h-0 flex-1 overflow-y-auto border-t border-transparent px-5 pb-4 pt-3 [scrollbar-color:#8d8d8d_transparent] [scrollbar-width:auto]">
           {sections.map((section) => (
-            <div key={section.label} className="mb-7">
-              <div className="mb-4 text-[17px] font-semibold text-[#777]">{section.label}</div>
+            <div key={section.label} className="mb-5">
+              <div className="mb-2 text-[12px] font-semibold text-[#777]">{section.label}</div>
               <nav className="grid gap-1">
                 {section.items.map((item) => {
                   const Icon = item.icon;
@@ -129,14 +122,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                       onClick={() => setOpen(false)}
                       aria-current={active ? "page" : undefined}
                       className={cn(
-                        "flex h-[60px] items-center gap-5 border-l-[4px] border-transparent px-5 text-[20px] text-[#2f2f2f] transition-colors hover:bg-white",
+                        "flex h-11 items-center gap-3 border-l-[3px] border-transparent px-3.5 text-[15px] text-[#2f2f2f] transition-colors hover:bg-white",
                         active && "border-[#963cff] bg-white font-medium",
                       )}
                     >
-                      <Icon className="h-8 w-8 shrink-0 stroke-[1.5]" />
+                      <Icon className="h-5 w-5 shrink-0 stroke-[1.7]" />
                       <span className="truncate">{item.label}</span>
                       {"badge" in item ? (
-                        <span className="ml-auto rounded-full bg-[#caefd2] px-3 py-1 text-[15px] font-semibold text-[#294c32]">
+                        <span className="ml-auto rounded-full bg-[#caefd2] px-2 py-0.5 text-[11px] font-semibold text-[#294c32]">
                           {item.badge}
                         </span>
                       ) : null}
@@ -150,8 +143,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
       </aside>
 
-      <main className="min-h-screen pt-16 lg:ml-[392px] lg:pt-0">
-        <div className="px-5 py-8 sm:px-8 lg:px-[72px] lg:py-[48px]">{children}</div>
+      <main className="min-h-screen w-full min-w-0 overflow-x-hidden pt-16 lg:ml-[272px] lg:w-[calc(100%-272px)] lg:pt-0">
+        <div className="w-full min-w-0 max-w-full px-5 py-7 sm:px-7 lg:px-10 lg:py-8 xl:px-12">{children}</div>
       </main>
     </div>
   );
