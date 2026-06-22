@@ -9,9 +9,21 @@ export async function POST(request: NextRequest) {
     targetWabaIds?: string[];
   };
 
-  if (!body.fileName || !Array.isArray(body.rows) || !Array.isArray(body.targetWabaIds) || !body.targetWabaIds.length) {
+  if (!body.fileName) {
     return NextResponse.json(
-      { error: "INVALID_REQUEST", message: "fileName, rows and targetWabaIds are required." },
+      { error: "FILE_REQUIRED", message: "The source file name is missing. Upload the file again." },
+      { status: 400 },
+    );
+  }
+  if (!Array.isArray(body.rows) || !body.rows.length) {
+    return NextResponse.json(
+      { error: "ROWS_REQUIRED", message: "No import rows were received. Upload and validate the file again." },
+      { status: 400 },
+    );
+  }
+  if (!Array.isArray(body.targetWabaIds) || !body.targetWabaIds.length) {
+    return NextResponse.json(
+      { error: "WABA_REQUIRED", message: "Select at least one connected WABA before submitting." },
       { status: 400 },
     );
   }

@@ -1,6 +1,6 @@
-import { RefreshCw, Search } from "lucide-react";
+import { Search } from "lucide-react";
+import { WabaSyncActions } from "@/components/waba-sync-actions";
 import { StatusBadge } from "@/components/status-badge";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -17,16 +17,7 @@ export default async function WabasPage() {
           <h1 className="text-2xl font-semibold">WABA Management</h1>
           <p className="mt-1 text-sm text-muted-foreground">Search, sort, select and synchronize connected accounts.</p>
         </div>
-        <div className="flex gap-2">
-          <Button variant="outline">
-            <RefreshCw className="h-4 w-4" />
-            Refresh WABAs
-          </Button>
-          <Button>
-            <RefreshCw className="h-4 w-4" />
-            Sync Templates
-          </Button>
-        </div>
+        <WabaSyncActions />
       </section>
 
       <div className="relative max-w-xl">

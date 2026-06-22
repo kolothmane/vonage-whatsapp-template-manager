@@ -35,6 +35,7 @@ export function ImportWizard({ wabas, templates }: ImportWizardProps) {
   const [submitState, setSubmitState] = useState<"idle" | "blocked" | "submitting" | "submitted" | "error">("idle");
   const [submitMessage, setSubmitMessage] = useState("");
   const [parseError, setParseError] = useState("");
+  const [targetError, setTargetError] = useState("");
 
   const transformedTemplates = useMemo(() => {
     const submittableTemplates = report ? getSubmittableTemplates(report) : [];
@@ -64,6 +65,7 @@ export function ImportWizard({ wabas, templates }: ImportWizardProps) {
     }
 
     setParseError("");
+    setTargetError("");
     setFileName(file.name);
     setReport(null);
     setSubmitState("idle");
@@ -80,6 +82,7 @@ export function ImportWizard({ wabas, templates }: ImportWizardProps) {
   }
 
   function toggleWaba(wabaId: string) {
+    setTargetError("");
     setTargetWabaIds((current) => {
       if (current.includes(wabaId)) {
         const next = current.filter((id) => id !== wabaId);
@@ -91,6 +94,11 @@ export function ImportWizard({ wabas, templates }: ImportWizardProps) {
   }
 
   function runValidation() {
+    if (!targetWabaIds.length) {
+      setTargetError("Select at least one connected WABA before validating the import.");
+      return;
+    }
+
     const validationReport = validateImportRows(rows, templates, targetWabaIds);
     setReport(validationReport);
     setSubmitState(getSubmittableTemplates(validationReport).length ? "idle" : "blocked");
@@ -125,6 +133,13 @@ export function ImportWizard({ wabas, templates }: ImportWizardProps) {
   }
 
   async function submitImport() {
+    if (!targetWabaIds.length) {
+      setSubmitState("error");
+      setSubmitMessage("Select at least one connected WABA before submitting.");
+      setActiveStep(5);
+      return;
+    }
+
     if (!payloads.length) {
       setSubmitState("blocked");
       setActiveStep(5);
@@ -200,6 +215,7 @@ export function ImportWizard({ wabas, templates }: ImportWizardProps) {
             <Input accept=".csv,.xlsx,.json" type="file" onChange={(event) => void handleFile(event.target.files?.[0] ?? null)} />
             {parseError ? <p className="text-sm text-red-200">{parseError}</p> : null}
             <TargetSelector wabas={wabas} selected={targetWabaIds} onToggle={toggleWaba} />
+            {targetError ? <p className="text-sm font-medium text-red-700">{targetError}</p> : null}
           </CardContent>
         </Card>
       ) : null}
@@ -449,6 +465,20 @@ function TargetSelector({
   selected: string[];
   onToggle: (wabaId: string) => void;
 }) {
+  if (!wabas.length) {
+    return (
+      <div className="flex flex-col gap-3 rounded-md border border-amber-400/40 bg-amber-50 p-4 text-sm sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <div className="font-semibold text-amber-950">No connected WABA</div>
+          <div className="text-amber-900">Synchronize your Vonage WABAs before validating or submitting an import.</div>
+        </div>
+        <Link className={buttonVariants({ variant: "outline" })} href="/wabas">
+          Open WABA Management
+        </Link>
+      </div>
+    );
+  }
+
   return (
     <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
       {wabas.map((waba) => (
