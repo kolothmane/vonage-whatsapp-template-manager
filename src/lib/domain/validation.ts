@@ -147,7 +147,7 @@ export function validateImportRows(
 
     let generatedName = "";
     try {
-      generatedName = generateTemplateName(`${brand} ${row["Template Name"]}`, language);
+      generatedName = generateTemplateName(row["Template Name"], language);
     } catch (error) {
       issues.push({
         rowNumber,

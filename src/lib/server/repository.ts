@@ -334,3 +334,37 @@ export async function deleteTemplate(id: string) {
     templates.filter((template) => template.id !== id),
   );
 }
+
+export async function deleteTemplates(ids: string[]) {
+  if (!hasKvConfig() || hasDatabaseUrl()) {
+    throw new Error("Bulk template deletion currently requires the configured Upstash KV backend.");
+  }
+
+  const templates = await readKvCollection<TemplateRecord>(KV_KEYS.templates);
+  const idSet = new Set(ids);
+  const remaining = templates.filter((template) => !idSet.has(template.id));
+  await getKv().set(KV_KEYS.templates, remaining);
+  return templates.length - remaining.length;
+}
+
+export async function updateTemplate(id: string, changes: Partial<TemplateRecord>) {
+  if (!hasKvConfig() || hasDatabaseUrl()) {
+    throw new Error("Template editing currently requires the configured Upstash KV backend.");
+  }
+
+  const templates = await readKvCollection<TemplateRecord>(KV_KEYS.templates);
+  const index = templates.findIndex((template) => template.id === id);
+  if (index < 0) {
+    return null;
+  }
+
+  const updated: TemplateRecord = {
+    ...templates[index],
+    ...changes,
+    id,
+    updatedAt: new Date().toISOString(),
+  };
+  templates[index] = updated;
+  await getKv().set(KV_KEYS.templates, templates);
+  return updated;
+}

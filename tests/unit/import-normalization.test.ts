@@ -23,7 +23,8 @@ describe("normalizeImportRows", () => {
     ]);
 
     expect(rows).toHaveLength(1);
-    expect(rows[0]["Template Name"]).toBe("Apres-Achat 1");
+    expect(rows[0]["Template Name"]).toBe("POST PURCHASE 1");
+    expect(rows[0]["Template Description"]).toBe("Apres-Achat 1");
     expect(rows[0]["Template Body"]).toBe("Bonjour {{1}}");
     expect(rows[0].__sourceRow).toBe(2);
     expect(rows[0]).not.toHaveProperty("Unnamed: 13");

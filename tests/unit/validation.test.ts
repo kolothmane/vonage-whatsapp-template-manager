@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { normalizeImportRows } from "@/lib/domain/import-normalization";
 import { getSubmittableTemplates, validateImportRows } from "@/lib/domain/validation";
 import type { TemplateRecord } from "@/lib/domain/types";
 
@@ -11,7 +12,7 @@ const existingTemplates: TemplateRecord[] = [
     language: "EN",
     whatsappLanguage: "en",
     originalName: "Following up on your sample",
-    generatedName: "ab_following_up_on_your_sample_en",
+    generatedName: "following_up_on_your_sample_en",
     body: "Hello {{1}}",
     category: "MARKETING",
     automation: "Manual",
@@ -80,7 +81,7 @@ describe("validateImportRows", () => {
     );
 
     expect(report.valid).toBe(true);
-    expect(report.templates[0].generatedName).toBe("ad_welcome_client_it");
+    expect(report.templates[0].generatedName).toBe("welcome_client_it");
     expect(report.templates[0].normalizedBody).toBe("Ciao {{1}}, visita {{2}}.");
   });
 
@@ -232,7 +233,25 @@ describe("validateImportRows", () => {
     expect(report.templates[0]).toMatchObject({
       language: "DU",
       whatsappLanguage: "nl",
-      generatedName: "pr_bedankt_nl",
+      generatedName: "bedankt_nl",
     });
+  });
+
+  it("uses Template Name rather than Template Description or brand for the generated name", () => {
+    const rows = normalizeImportRows([
+      {
+        BRAND: "PR",
+        Language: "EN",
+        "Template Name": "(W) -Product Available",
+        "Template Description": "(W) -Produit disponible",
+        "Template Body": "Hello {{1}}.",
+        "Body Variables": "{{1}} Customer Name",
+        "Template Type": "Proactive Contact",
+      },
+    ]);
+    const report = validateImportRows(rows, [], ["catalog"]);
+
+    expect(report.templates[0].originalName).toBe("(W) -Product Available");
+    expect(report.templates[0].generatedName).toBe("w_product_available_en");
   });
 });

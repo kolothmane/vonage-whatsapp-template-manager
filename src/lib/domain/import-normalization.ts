@@ -12,11 +12,6 @@ export function normalizeImportRows(rows: Record<string, unknown>[]) {
       return [];
     }
 
-    const localizedName = String(row["Template Description"] ?? "").trim();
-    if (localizedName) {
-      row["Template Name"] = localizedName;
-    }
-
     row.__sourceRow = index + 2;
     return [row];
   });
