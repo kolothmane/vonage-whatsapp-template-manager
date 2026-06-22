@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { listWabas } from "@/lib/server/repository";
+import { listWabas, saveWabas } from "@/lib/server/repository";
 import { fetchVonageWabas } from "@/lib/server/vonage";
 
 export async function GET() {
@@ -10,6 +10,7 @@ export async function GET() {
 export async function POST() {
   try {
     const data = await fetchVonageWabas();
+    await saveWabas(data);
     return NextResponse.json({ data, message: "WABAs retrieved from Vonage." });
   } catch (error) {
     return NextResponse.json(

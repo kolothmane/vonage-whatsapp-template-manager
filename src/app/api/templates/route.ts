@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { generateVonagePayload } from "@/lib/domain/payload";
 import { validateImportRows } from "@/lib/domain/validation";
-import { listTemplates } from "@/lib/server/repository";
+import { listTemplates, saveTemplate } from "@/lib/server/repository";
 import { createVonageTemplate } from "@/lib/server/vonage";
 
 export async function GET() {
@@ -37,7 +37,8 @@ export async function POST(request: NextRequest) {
 
   try {
     const response = await createVonageTemplate(body.wabaId, payload);
-    return NextResponse.json({ data: response, payload }, { status: 201 });
+    const template = await saveTemplate(body.wabaId, report.templates[0]);
+    return NextResponse.json({ data: response, payload, template }, { status: 201 });
   } catch (error) {
     return NextResponse.json(
       {

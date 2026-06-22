@@ -1,5 +1,29 @@
-import type { ImportRecord, LogRecord, TemplateRecord, Waba } from "@/lib/domain/types";
+import type {
+  AuditLogRecord,
+  ImportRecord,
+  LogRecord,
+  NormalizedTemplate,
+  TemplateRecord,
+  Waba,
+} from "@/lib/domain/types";
 import { getPrisma, hasDatabaseUrl } from "./db";
+import { getKv, hasKvConfig } from "./kv";
+
+const KV_KEYS = {
+  wabas: "waba-br:wabas",
+  templates: "waba-br:templates",
+  imports: "waba-br:imports",
+  logs: "waba-br:logs",
+  auditLogs: "waba-br:audit-logs",
+} as const;
+
+async function readKvCollection<T>(key: string): Promise<T[]> {
+  if (!hasKvConfig()) {
+    return [];
+  }
+
+  return (await getKv().get<T[]>(key)) ?? [];
+}
 
 function toIso(value: Date | string | null | undefined) {
   if (!value) {
@@ -15,7 +39,8 @@ function prismaWabaStatus(status: string): Waba["status"] {
 
 export async function listWabas(): Promise<Waba[]> {
   if (!hasDatabaseUrl()) {
-    return [];
+    const wabas = await readKvCollection<Waba>(KV_KEYS.wabas);
+    return wabas.sort((a, b) => a.name.localeCompare(b.name));
   }
 
   const prisma = getPrisma();
@@ -32,7 +57,8 @@ export async function listWabas(): Promise<Waba[]> {
 
 export async function listTemplates(): Promise<TemplateRecord[]> {
   if (!hasDatabaseUrl()) {
-    return [];
+    const templates = await readKvCollection<TemplateRecord>(KV_KEYS.templates);
+    return templates.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   }
 
   const prisma = getPrisma();
@@ -66,7 +92,8 @@ export async function listTemplates(): Promise<TemplateRecord[]> {
 
 export async function listImports(): Promise<ImportRecord[]> {
   if (!hasDatabaseUrl()) {
-    return [];
+    const imports = await readKvCollection<ImportRecord>(KV_KEYS.imports);
+    return imports.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
 
   const prisma = getPrisma();
@@ -93,7 +120,8 @@ export async function getImportById(id: string) {
 
 export async function listLogs(): Promise<LogRecord[]> {
   if (!hasDatabaseUrl()) {
-    return [];
+    const logs = await readKvCollection<LogRecord>(KV_KEYS.logs);
+    return logs.sort((a, b) => b.timestamp.localeCompare(a.timestamp)).slice(0, 500);
   }
 
   const prisma = getPrisma();
@@ -117,9 +145,10 @@ export async function listLogs(): Promise<LogRecord[]> {
   }));
 }
 
-export async function listAuditLogs() {
+export async function listAuditLogs(): Promise<AuditLogRecord[]> {
   if (!hasDatabaseUrl()) {
-    return [];
+    const logs = await readKvCollection<AuditLogRecord>(KV_KEYS.auditLogs);
+    return logs.sort((a, b) => b.date.localeCompare(a.date)).slice(0, 500);
   }
 
   const prisma = getPrisma();
@@ -133,4 +162,83 @@ export async function listAuditLogs() {
     newValue: entry.newValue ?? undefined,
     date: toIso(entry.date),
   }));
+}
+
+export async function saveWabas(wabas: Waba[]) {
+  if (hasDatabaseUrl()) {
+    const prisma = getPrisma();
+    await Promise.all(
+      wabas.map((waba) =>
+        prisma.waba.upsert({
+          where: { id: waba.id },
+          create: {
+            id: waba.id,
+            name: waba.name,
+            status: waba.status === "Action Required" ? "ActionRequired" : waba.status,
+            country: waba.country,
+            templateCount: waba.templateCount,
+            lastSyncAt: new Date(waba.lastSyncAt),
+          },
+          update: {
+            name: waba.name,
+            status: waba.status === "Action Required" ? "ActionRequired" : waba.status,
+            country: waba.country,
+            templateCount: waba.templateCount,
+            lastSyncAt: new Date(waba.lastSyncAt),
+          },
+        }),
+      ),
+    );
+    return;
+  }
+
+  if (hasKvConfig()) {
+    await getKv().set(KV_KEYS.wabas, wabas);
+  }
+}
+
+export async function saveTemplate(wabaId: string, template: NormalizedTemplate) {
+  const now = new Date().toISOString();
+  const waba = (await listWabas()).find((item) => item.id === wabaId);
+  const record: TemplateRecord = {
+    id: crypto.randomUUID(),
+    wabaId,
+    wabaName: waba?.name ?? wabaId,
+    brand: template.brand,
+    language: template.language,
+    whatsappLanguage: template.whatsappLanguage,
+    originalName: template.originalName,
+    generatedName: template.generatedName,
+    body: template.normalizedBody,
+    category: template.category,
+    automation: template.automation,
+    status: "Submitted",
+    variableMappings: template.variableMappings,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  if (hasKvConfig() && !hasDatabaseUrl()) {
+    const templates = await readKvCollection<TemplateRecord>(KV_KEYS.templates);
+    await getKv().set(KV_KEYS.templates, [record, ...templates]);
+  }
+
+  return record;
+}
+
+export async function deleteTemplate(id: string) {
+  if (hasDatabaseUrl()) {
+    await getPrisma().template.delete({ where: { id } });
+    return;
+  }
+
+  if (!hasKvConfig()) {
+    throw new Error("No persistence backend is configured.");
+  }
+
+  const templates = await readKvCollection<TemplateRecord>(KV_KEYS.templates);
+  await getKv().set(
+    KV_KEYS.templates,
+    templates.filter((template) => template.id !== id),
+  );
 }

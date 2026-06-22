@@ -11,6 +11,8 @@ const environmentRows = [
   ["VONAGE_PRIVATE_KEY", process.env.VONAGE_PRIVATE_KEY ? "configured" : "not configured"],
   ["DATABASE_URL", process.env.DATABASE_URL ? "configured" : "not configured"],
   ["REDIS_URL", process.env.REDIS_URL ? "configured" : "not configured"],
+  ["KV_REST_API_URL", process.env.KV_REST_API_URL ? "configured" : "not configured"],
+  ["KV_REST_API_TOKEN", process.env.KV_REST_API_TOKEN ? "configured" : "not configured"],
   ["JWT_SECRET", process.env.JWT_SECRET ? "configured" : "not configured"],
 ];
 
