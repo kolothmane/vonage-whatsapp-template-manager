@@ -254,4 +254,55 @@ describe("validateImportRows", () => {
     expect(report.templates[0].originalName).toBe("(W) -Product Available");
     expect(report.templates[0].generatedName).toBe("w_product_available_en");
   });
+
+  it("allows the same generated name for different brands", () => {
+    const report = validateImportRows(
+      [
+        {
+          BRAND: "AB",
+          Language: "EN",
+          "Template Name": "Thank you",
+          "Template Body": "Hello",
+          "Template Type": "MARKETING",
+        },
+        {
+          BRAND: "CH",
+          Language: "EN",
+          "Template Name": "Thank you",
+          "Template Body": "Hello",
+          "Template Type": "MARKETING",
+        },
+      ],
+      [],
+      ["catalog"],
+    );
+
+    expect(report.valid).toBe(true);
+    expect(report.templates.map((template) => template.generatedName)).toEqual(["thank_you_en", "thank_you_en"]);
+  });
+
+  it("blocks the same generated name twice for the same brand", () => {
+    const report = validateImportRows(
+      [
+        {
+          BRAND: "AB",
+          Language: "EN",
+          "Template Name": "Thank you",
+          "Template Body": "Hello",
+          "Template Type": "MARKETING",
+        },
+        {
+          BRAND: "AB",
+          Language: "EN",
+          "Template Name": "Thank you",
+          "Template Body": "Hello again",
+          "Template Type": "MARKETING",
+        },
+      ],
+      [],
+      ["catalog"],
+    );
+
+    expect(report.issues.some((issue) => issue.code === "BATCH_DUPLICATE")).toBe(true);
+  });
 });

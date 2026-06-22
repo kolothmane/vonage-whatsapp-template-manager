@@ -63,7 +63,7 @@ export function validateSpreadsheetStructure(rows: Record<string, unknown>[]): V
 
 export function validateImportRows(
   rawRows: Record<string, unknown>[],
-  existingTemplates: Pick<TemplateRecord, "wabaId" | "wabaName" | "generatedName">[],
+  existingTemplates: Pick<TemplateRecord, "wabaId" | "wabaName" | "brand" | "generatedName">[],
   targetWabaIds: string[],
 ): ValidationReport {
   const issues: ValidationIssue[] = validateSpreadsheetStructure(rawRows);
@@ -162,10 +162,11 @@ export function validateImportRows(
     for (const wabaId of targetWabaIds) {
       const duplicate = existingTemplates.find(
         (template) =>
+          template.brand === brand &&
           template.generatedName === generatedName &&
           (wabaId === "catalog" ? !template.wabaId : template.wabaId === wabaId),
       );
-      const batchKey = `${wabaId}:${generatedName}`;
+      const batchKey = `${wabaId}:${brand}:${generatedName}`;
 
       if (duplicate) {
         issues.push({
