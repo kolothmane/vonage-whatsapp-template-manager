@@ -6,7 +6,7 @@ import { readSheet } from "read-excel-file/browser";
 import { CheckCircle2, Copy, Download, FileJson, RefreshCw, Send, ShieldAlert, UploadCloud } from "lucide-react";
 import { generateVonagePayload } from "@/lib/domain/payload";
 import { generateTemplateName } from "@/lib/domain/template-name";
-import { validateImportRows } from "@/lib/domain/validation";
+import { getSubmittableTemplates, validateImportRows } from "@/lib/domain/validation";
 import { normalizeImportRows } from "@/lib/domain/import-normalization";
 import type { TemplateRecord, ValidationReport, Waba } from "@/lib/domain/types";
 import { Badge } from "@/components/ui/badge";
@@ -35,16 +35,26 @@ export function ImportWizard({ wabas, templates }: ImportWizardProps) {
   const [parseError, setParseError] = useState("");
 
   const transformedTemplates = useMemo(() => {
+    const submittableTemplates = report ? getSubmittableTemplates(report) : [];
     return (
-      report?.templates.map((template) => ({
+      submittableTemplates.map((template) => ({
         ...template,
         generatedName: overrides[template.rowNumber] || template.generatedName,
-      })) ?? []
+      }))
     );
   }, [overrides, report]);
 
   const payloads = useMemo(() => transformedTemplates.map(generateVonagePayload), [transformedTemplates]);
   const currentPayload = payloads[0] ? JSON.stringify(payloads[0], null, 2) : "";
+  const rejectedRows = useMemo(
+    () =>
+      [...new Set(
+        report?.issues
+          .filter((issue) => issue.severity === "ERROR" && issue.rowNumber !== undefined)
+          .map((issue) => issue.rowNumber!) ?? [],
+      )].sort((a, b) => a - b),
+    [report],
+  );
 
   async function handleFile(file: File | null) {
     if (!file) {
@@ -81,7 +91,7 @@ export function ImportWizard({ wabas, templates }: ImportWizardProps) {
   function runValidation() {
     const validationReport = validateImportRows(rows, templates, targetWabaIds);
     setReport(validationReport);
-    setSubmitState(validationReport.valid ? "idle" : "blocked");
+    setSubmitState(getSubmittableTemplates(validationReport).length ? "idle" : "blocked");
     setActiveStep(2);
   }
 
@@ -91,7 +101,7 @@ export function ImportWizard({ wabas, templates }: ImportWizardProps) {
     }
 
     const regenerated: Record<number, string> = {};
-    for (const template of report.templates) {
+    for (const template of getSubmittableTemplates(report)) {
       regenerated[template.rowNumber] = generateTemplateName(template.originalName, template.language);
     }
     setOverrides(regenerated);
@@ -113,7 +123,7 @@ export function ImportWizard({ wabas, templates }: ImportWizardProps) {
   }
 
   function submitImport() {
-    if (!report?.valid) {
+    if (!payloads.length) {
       setSubmitState("blocked");
       setActiveStep(5);
       return;
@@ -191,7 +201,7 @@ export function ImportWizard({ wabas, templates }: ImportWizardProps) {
                 {report.summary.errors} errors, {report.summary.warnings} warnings, {report.summary.duplicates} duplicates
               </CardDescription>
             </div>
-            <Button variant={report.valid ? "default" : "destructive"} onClick={() => setActiveStep(3)} disabled={!report.templates.length}>
+            <Button onClick={() => setActiveStep(3)} disabled={!transformedTemplates.length}>
               <RefreshCw className="h-4 w-4" />
               Transform
             </Button>
@@ -202,6 +212,9 @@ export function ImportWizard({ wabas, templates }: ImportWizardProps) {
               <SummaryPill label="Errors" value={report.summary.errors} tone="red" />
               <SummaryPill label="Warnings" value={report.summary.warnings} tone="amber" />
               <SummaryPill label="Duplicates" value={report.summary.duplicates} tone="red" />
+            </div>
+            <div className="rounded-md border border-amber-400/30 bg-amber-400/10 p-3 text-sm">
+              {transformedTemplates.length} valid row(s) will continue. {rejectedRows.length} row(s) with errors will be skipped.
             </div>
             <div className="overflow-x-auto rounded-md border">
               <Table>
@@ -309,7 +322,9 @@ export function ImportWizard({ wabas, templates }: ImportWizardProps) {
           <CardHeader className="flex-row items-center justify-between">
             <div>
               <CardTitle>Review</CardTitle>
-              <CardDescription>{payloads.length} payloads generated for {targetWabaIds.length} WABA target(s).</CardDescription>
+              <CardDescription>
+                {payloads.length} valid payloads generated. {rejectedRows.length} row(s) with errors excluded.
+              </CardDescription>
             </div>
             <div className="flex gap-2">
               <Button variant="outline" onClick={copyJson}>
@@ -320,7 +335,7 @@ export function ImportWizard({ wabas, templates }: ImportWizardProps) {
                 <Download className="h-4 w-4" />
                 Download
               </Button>
-              <Button onClick={submitImport}>
+              <Button onClick={submitImport} disabled={!payloads.length}>
                 <Send className="h-4 w-4" />
                 Submit
               </Button>
@@ -341,16 +356,41 @@ export function ImportWizard({ wabas, templates }: ImportWizardProps) {
             </CardTitle>
             <CardDescription>
               {submitState === "queued"
-                ? "Import queued for BullMQ processing."
-                : "Submission blocked until validation succeeds."}
+                ? "Valid rows accepted; rows with errors were skipped."
+                : "No valid rows are available for submission."}
             </CardDescription>
           </CardHeader>
           <CardContent>
             <div className="rounded-md border p-4 text-sm text-muted-foreground">
               {submitState === "queued"
-                ? `${payloads.length} template payloads are ready for the retry-safe queue.`
-                : "STRICT MODE prevents duplicate creation, auto-renaming, auto-overwrite and auto-merge."}
+                ? `${payloads.length} template payload(s) accepted. ${rejectedRows.length} invalid row(s) skipped: ${rejectedRows.join(", ") || "none"}.`
+                : "Correct at least one row before submitting again."}
             </div>
+            {rejectedRows.length ? (
+              <div className="mt-4 overflow-x-auto rounded-md border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Skipped row</TableHead>
+                      <TableHead>Reason</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {rejectedRows.map((rowNumber) => (
+                      <TableRow key={rowNumber}>
+                        <TableCell className="font-mono">{rowNumber}</TableCell>
+                        <TableCell>
+                          {report?.issues
+                            .filter((issue) => issue.severity === "ERROR" && issue.rowNumber === rowNumber)
+                            .map((issue) => issue.message)
+                            .join(" ")}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            ) : null}
           </CardContent>
         </Card>
       ) : null}

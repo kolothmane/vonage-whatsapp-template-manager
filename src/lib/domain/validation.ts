@@ -237,3 +237,20 @@ export function validateImportRows(
     templates,
   };
 }
+
+export function getSubmittableTemplates(report: ValidationReport): NormalizedTemplate[] {
+  const globalError = report.issues.some(
+    (issue) => issue.severity === "ERROR" && issue.rowNumber === undefined,
+  );
+  if (globalError) {
+    return [];
+  }
+
+  const rejectedRows = new Set(
+    report.issues
+      .filter((issue) => issue.severity === "ERROR" && issue.rowNumber !== undefined)
+      .map((issue) => issue.rowNumber),
+  );
+
+  return report.templates.filter((template) => !rejectedRows.has(template.rowNumber));
+}

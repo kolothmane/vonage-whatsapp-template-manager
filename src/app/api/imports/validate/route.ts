@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { generateVonagePayload } from "@/lib/domain/payload";
-import { validateImportRows } from "@/lib/domain/validation";
+import { getSubmittableTemplates, validateImportRows } from "@/lib/domain/validation";
 import { listTemplates } from "@/lib/server/repository";
 
 export async function POST(request: NextRequest) {
@@ -18,13 +18,20 @@ export async function POST(request: NextRequest) {
 
   const existingTemplates = await listTemplates();
   const report = validateImportRows(body.rows, existingTemplates, body.targetWabaIds);
-  const payloads = report.templates.map(generateVonagePayload);
+  const submittableTemplates = getSubmittableTemplates(report);
+  const payloads = submittableTemplates.map(generateVonagePayload);
+  const skippedRows = [...new Set(
+    report.issues
+      .filter((issue) => issue.severity === "ERROR" && issue.rowNumber !== undefined)
+      .map((issue) => issue.rowNumber),
+  )].sort((a, b) => a! - b!);
 
   return NextResponse.json({
     data: {
       report,
       payloads,
-      blocked: !report.valid,
+      blocked: payloads.length === 0,
+      skippedRows,
       mode: "STRICT",
     },
   });

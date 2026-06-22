@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { validateImportRows } from "@/lib/domain/validation";
+import { getSubmittableTemplates, validateImportRows } from "@/lib/domain/validation";
 import type { TemplateRecord } from "@/lib/domain/types";
 
 const existingTemplates: TemplateRecord[] = [
@@ -160,5 +160,33 @@ describe("validateImportRows", () => {
       }),
     );
     expect(report.templates[0].variableMappings.map((mapping) => mapping.key)).toEqual(["CUSTOMER_NAME"]);
+  });
+
+  it("submits valid rows while excluding rows with errors", () => {
+    const report = validateImportRows(
+      [
+        {
+          BRAND: "KA",
+          Language: "ES",
+          "Template Name": "Valid template",
+          "Template Body": "Hello {{1}}.",
+          "Body Variables": "{{1}} Customer Name",
+          "Template Type": "Proactive Contact",
+        },
+        {
+          BRAND: "KA",
+          Language: "ES",
+          "Template Name": "Invalid template",
+          "Template Body": "Hello {{1}} and {{2}}.",
+          "Body Variables": "{{1}} Customer Name",
+          "Template Type": "Proactive Contact",
+        },
+      ],
+      [],
+      ["waba-br"],
+    );
+
+    expect(report.valid).toBe(false);
+    expect(getSubmittableTemplates(report).map((template) => template.rowNumber)).toEqual([2]);
   });
 });
