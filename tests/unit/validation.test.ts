@@ -112,6 +112,28 @@ describe("validateImportRows", () => {
     expect(report.templates.map((template) => template.category)).toEqual(["MARKETING", "UTILITY"]);
   });
 
+  it.each(["DBS", "JPG", "PEN", "PR", "SHA"] as const)(
+    "accepts the %s brand from the WABA BR catalog",
+    (brand) => {
+      const report = validateImportRows(
+        [
+          {
+            BRAND: brand,
+            Language: "EN",
+            "Template Name": "Catalog template",
+            "Template Body": "Hello {{1}}.",
+            "Body Variables": "{{1}} Customer Name",
+            "Template Type": "Proactive Contact",
+          },
+        ],
+        [],
+        ["waba-br"],
+      );
+
+      expect(report.issues.some((issue) => issue.code === "UNSUPPORTED_BRAND")).toBe(false);
+    },
+  );
+
   it("maps workbook Body Variables to semantic keys", () => {
     const report = validateImportRows(
       [

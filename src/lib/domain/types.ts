@@ -1,4 +1,19 @@
-export const SUPPORTED_BRANDS = ["AB", "AD", "BNT", "CH", "CLB", "KA", "LAP", "LDS", "NR"] as const;
+export const SUPPORTED_BRANDS = [
+  "AB",
+  "AD",
+  "BNT",
+  "CH",
+  "CLB",
+  "DBS",
+  "JPG",
+  "KA",
+  "LAP",
+  "LDS",
+  "NR",
+  "PEN",
+  "PR",
+  "SHA",
+] as const;
 export const SUPPORTED_LANGUAGES = ["EN", "FR", "ES", "PT", "IT", "DE"] as const;
 
 export const LANGUAGE_MAP = {
