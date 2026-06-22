@@ -84,7 +84,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
       <aside
         className={cn(
-          "fixed inset-y-0 left-0 z-50 flex w-[min(272px,88vw)] flex-col bg-[#f4f4f4] transition-transform duration-200 lg:translate-x-0",
+          "fixed inset-y-0 left-0 z-50 flex w-[min(232px,88vw)] flex-col bg-[#f4f4f4] transition-transform duration-200 lg:translate-x-0",
           open ? "translate-x-0" : "-translate-x-full",
         )}
       >
@@ -97,20 +97,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <X className="h-5 w-5" />
         </button>
 
-        <div className="px-5 pb-4 pt-6">
+        <div className="px-4 pb-3 pt-5">
           <ProductBrand />
 
-          <div className="mt-6 text-[15px]">Import mode</div>
-          <div className="mt-1 inline-flex rounded-[5px] bg-[#963cff] px-2.5 py-1 text-[13px] font-semibold text-white">
+          <div className="mt-4 text-[13px]">Import mode</div>
+          <div className="mt-1 inline-flex rounded-[5px] bg-[#963cff] px-2 py-0.5 text-[12px] font-semibold text-white">
             STRICT MODE
           </div>
 
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto border-t border-transparent px-5 pb-4 pt-3 [scrollbar-color:#8d8d8d_transparent] [scrollbar-width:auto]">
+        <div className="min-h-0 flex-1 overflow-y-auto border-t border-transparent px-4 pb-3 pt-2 [scrollbar-color:#8d8d8d_transparent] [scrollbar-width:auto]">
           {sections.map((section) => (
-            <div key={section.label} className="mb-5">
-              <div className="mb-2 text-[12px] font-semibold text-[#777]">{section.label}</div>
+            <div key={section.label} className="mb-3">
+              <div className="mb-1.5 text-[11px] font-semibold text-[#777]">{section.label}</div>
               <nav className="grid gap-1">
                 {section.items.map((item) => {
                   const Icon = item.icon;
@@ -122,11 +122,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                       onClick={() => setOpen(false)}
                       aria-current={active ? "page" : undefined}
                       className={cn(
-                        "flex h-11 items-center gap-3 border-l-[3px] border-transparent px-3.5 text-[15px] text-[#2f2f2f] transition-colors hover:bg-white",
+                        "flex h-9 items-center gap-2.5 border-l-[3px] border-transparent px-3 text-[13px] text-[#2f2f2f] transition-colors hover:bg-white",
                         active && "border-[#963cff] bg-white font-medium",
                       )}
                     >
-                      <Icon className="h-5 w-5 shrink-0 stroke-[1.7]" />
+                      <Icon className="h-[18px] w-[18px] shrink-0 stroke-[1.7]" />
                       <span className="truncate">{item.label}</span>
                       {"badge" in item ? (
                         <span className="ml-auto rounded-full bg-[#caefd2] px-2 py-0.5 text-[11px] font-semibold text-[#294c32]">
@@ -143,8 +143,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
       </aside>
 
-      <main className="min-h-screen w-full min-w-0 overflow-x-hidden pt-16 lg:ml-[272px] lg:w-[calc(100%-272px)] lg:pt-0">
-        <div className="w-full min-w-0 max-w-full px-5 py-7 sm:px-7 lg:px-10 lg:py-8 xl:px-12">{children}</div>
+      <main className="min-h-screen w-full min-w-0 overflow-x-hidden pt-16 lg:ml-[232px] lg:w-[calc(100%-232px)] lg:pt-0">
+        <div className="w-full min-w-0 max-w-full px-4 py-5 sm:px-6 lg:px-7 lg:py-6 xl:px-8">{children}</div>
       </main>
     </div>
   );

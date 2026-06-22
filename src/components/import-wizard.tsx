@@ -163,10 +163,10 @@ export function ImportWizard({ wabas, templates }: ImportWizardProps) {
   }
 
   return (
-    <div className="grid gap-5">
+    <div className="grid gap-4">
       <Card>
-        <CardContent className="pt-5">
-          <div className="grid gap-2 md:grid-cols-6">
+        <CardContent className="p-3">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6">
             {steps.map((step, index) => (
               <button
                 key={step}
@@ -174,12 +174,13 @@ export function ImportWizard({ wabas, templates }: ImportWizardProps) {
                 onClick={() => setActiveStep(index)}
                 aria-current={activeStep === index ? "step" : undefined}
                 className={cn(
-                  "h-10 rounded-md border px-3 text-left text-xs font-medium text-muted-foreground transition-colors",
+                  "flex h-9 min-w-0 items-center rounded-md border px-2.5 text-left text-[12px] font-medium text-muted-foreground transition-colors",
                   activeStep === index && "border-primary bg-primary/12 text-primary",
                   index < activeStep && "border-emerald-400/30 text-emerald-200",
                 )}
               >
-                <span className="font-mono">{index + 1}.</span> {step}
+                <span className="mr-1 shrink-0 font-mono">{index + 1}.</span>
+                <span className="truncate">{step}</span>
               </button>
             ))}
           </div>
