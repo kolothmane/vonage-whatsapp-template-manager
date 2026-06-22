@@ -226,6 +226,80 @@ export async function saveTemplate(wabaId: string, template: NormalizedTemplate)
   return record;
 }
 
+export async function saveImportSubmission(params: {
+  fileName: string;
+  wabaIds: string[];
+  templates: NormalizedTemplate[];
+  skippedRows: number[];
+  duplicateCount: number;
+}) {
+  if (!hasKvConfig() || hasDatabaseUrl()) {
+    throw new Error("Bulk import persistence currently requires the configured Upstash KV backend.");
+  }
+
+  const now = new Date().toISOString();
+  const importId = crypto.randomUUID();
+  const [wabas, existingTemplates, imports, logs] = await Promise.all([
+    listWabas(),
+    readKvCollection<TemplateRecord>(KV_KEYS.templates),
+    readKvCollection<ImportRecord>(KV_KEYS.imports),
+    readKvCollection<LogRecord>(KV_KEYS.logs),
+  ]);
+  const wabaNames = new Map(wabas.map((waba) => [waba.id, waba.name]));
+  const records: TemplateRecord[] = params.wabaIds.flatMap((wabaId) =>
+    params.templates.map((template) => ({
+      id: crypto.randomUUID(),
+      wabaId,
+      wabaName: wabaNames.get(wabaId) ?? wabaId,
+      brand: template.brand,
+      language: template.language,
+      whatsappLanguage: template.whatsappLanguage,
+      originalName: template.originalName,
+      generatedName: template.generatedName,
+      body: template.normalizedBody,
+      category: template.category,
+      automation: template.automation,
+      status: "Submitted",
+      variableMappings: template.variableMappings,
+      createdAt: now,
+      updatedAt: now,
+    })),
+  );
+  const importRecord: ImportRecord = {
+    id: importId,
+    fileName: params.fileName,
+    target: params.wabaIds.map((id) => wabaNames.get(id) ?? id).join(", "),
+    mode: "STRICT",
+    status: "Completed",
+    total: params.templates.length + params.skippedRows.length,
+    submitted: records.length,
+    failed: 0,
+    skipped: params.skippedRows.length,
+    duplicates: params.duplicateCount,
+    createdAt: now,
+  };
+  const newLogs: LogRecord[] = records.map((record) => ({
+    id: crypto.randomUUID(),
+    importId,
+    wabaId: record.wabaId,
+    wabaName: record.wabaName,
+    templateName: record.generatedName,
+    brand: record.brand,
+    language: record.language,
+    status: "Submitted",
+    message: "Template registered from strict import.",
+    timestamp: now,
+  }));
+
+  await Promise.all([
+    getKv().set(KV_KEYS.templates, [...records, ...existingTemplates]),
+    getKv().set(KV_KEYS.imports, [importRecord, ...imports]),
+    getKv().set(KV_KEYS.logs, [...newLogs, ...logs].slice(0, 500)),
+  ]);
+
+  return { importRecord, records };
+}
+
 export async function deleteTemplate(id: string) {
   if (hasDatabaseUrl()) {
     await getPrisma().template.delete({ where: { id } });

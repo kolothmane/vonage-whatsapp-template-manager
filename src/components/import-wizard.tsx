@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import Papa from "papaparse";
 import { readSheet } from "read-excel-file/browser";
 import { CheckCircle2, Copy, Download, FileJson, RefreshCw, Send, ShieldAlert, UploadCloud } from "lucide-react";
@@ -10,7 +11,7 @@ import { getSubmittableTemplates, validateImportRows } from "@/lib/domain/valida
 import { normalizeImportRows } from "@/lib/domain/import-normalization";
 import type { TemplateRecord, ValidationReport, Waba } from "@/lib/domain/types";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -31,7 +32,8 @@ export function ImportWizard({ wabas, templates }: ImportWizardProps) {
   const [targetWabaIds, setTargetWabaIds] = useState<string[]>(wabas[0] ? [wabas[0].id] : []);
   const [report, setReport] = useState<ValidationReport | null>(null);
   const [overrides, setOverrides] = useState<Record<number, string>>({});
-  const [submitState, setSubmitState] = useState<"idle" | "blocked" | "queued">("idle");
+  const [submitState, setSubmitState] = useState<"idle" | "blocked" | "submitting" | "submitted" | "error">("idle");
+  const [submitMessage, setSubmitMessage] = useState("");
   const [parseError, setParseError] = useState("");
 
   const transformedTemplates = useMemo(() => {
@@ -122,15 +124,42 @@ export function ImportWizard({ wabas, templates }: ImportWizardProps) {
     URL.revokeObjectURL(url);
   }
 
-  function submitImport() {
+  async function submitImport() {
     if (!payloads.length) {
       setSubmitState("blocked");
       setActiveStep(5);
       return;
     }
 
-    setSubmitState("queued");
+    setSubmitState("submitting");
+    setSubmitMessage("");
     setActiveStep(5);
+
+    try {
+      const response = await fetch("/api/imports/submit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fileName,
+          rows,
+          targetWabaIds,
+        }),
+      });
+      const result = (await response.json()) as {
+        data?: { savedTemplates?: number };
+        message?: string;
+      };
+
+      if (!response.ok) {
+        throw new Error(result.message || "Import submission failed.");
+      }
+
+      setSubmitState("submitted");
+      setSubmitMessage(`${result.data?.savedTemplates ?? payloads.length} template record(s) saved.`);
+    } catch (error) {
+      setSubmitState("error");
+      setSubmitMessage(error instanceof Error ? error.message : "Import submission failed.");
+    }
   }
 
   return (
@@ -335,7 +364,7 @@ export function ImportWizard({ wabas, templates }: ImportWizardProps) {
                 <Download className="h-4 w-4" />
                 Download
               </Button>
-              <Button onClick={submitImport} disabled={!payloads.length}>
+              <Button onClick={() => void submitImport()} disabled={!payloads.length || submitState === "submitting"}>
                 <Send className="h-4 w-4" />
                 Submit
               </Button>
@@ -351,21 +380,33 @@ export function ImportWizard({ wabas, templates }: ImportWizardProps) {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              {submitState === "queued" ? <CheckCircle2 className="h-4 w-4 text-emerald-200" /> : <ShieldAlert className="h-4 w-4 text-red-200" />}
+              {submitState === "submitted" ? <CheckCircle2 className="h-4 w-4 text-emerald-200" /> : <ShieldAlert className="h-4 w-4 text-red-200" />}
               Submission
             </CardTitle>
             <CardDescription>
-              {submitState === "queued"
-                ? "Valid rows accepted; rows with errors were skipped."
-                : "No valid rows are available for submission."}
+              {submitState === "submitted"
+                ? "Valid rows were saved; rows with errors were skipped."
+                : submitState === "submitting"
+                  ? "Saving valid templates..."
+                  : submitState === "error"
+                    ? "The import could not be saved."
+                    : "No valid rows are available for submission."}
             </CardDescription>
           </CardHeader>
           <CardContent>
             <div className="rounded-md border p-4 text-sm text-muted-foreground">
-              {submitState === "queued"
-                ? `${payloads.length} template payload(s) accepted. ${rejectedRows.length} invalid row(s) skipped: ${rejectedRows.join(", ") || "none"}.`
-                : "Correct at least one row before submitting again."}
+              {submitState === "submitted"
+                ? `${submitMessage} ${rejectedRows.length} invalid row(s) skipped: ${rejectedRows.join(", ") || "none"}.`
+                : submitState === "submitting"
+                  ? "The server is revalidating and writing the import to Upstash."
+                  : submitMessage || "Correct at least one row before submitting again."}
             </div>
+            {submitState === "submitted" ? (
+              <div className="mt-4 flex gap-2">
+                <Link className={buttonVariants()} href="/templates">View Templates</Link>
+                <Link className={buttonVariants({ variant: "outline" })} href="/imports">View Import History</Link>
+              </div>
+            ) : null}
             {rejectedRows.length ? (
               <div className="mt-4 overflow-x-auto rounded-md border">
                 <Table>
