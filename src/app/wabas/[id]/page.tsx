@@ -25,7 +25,7 @@ export default async function WabaTemplatesPage({ params }: { params: Promise<{ 
           <CardDescription>Choose which central catalog templates to submit to this WABA.</CardDescription>
         </CardHeader>
         <CardContent>
-          <WabaTemplateSelector wabaId={waba.id} templates={catalogTemplates} />
+          <WabaTemplateSelector waba={waba} templates={catalogTemplates} />
         </CardContent>
       </Card>
     </div>
