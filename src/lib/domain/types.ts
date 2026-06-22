@@ -50,8 +50,8 @@ export type Waba = {
 
 export type TemplateRecord = {
   id: string;
-  wabaId: string;
-  wabaName: string;
+  wabaId?: string;
+  wabaName?: string;
   brand: SupportedBrand;
   language: SupportedLanguage;
   whatsappLanguage: WhatsAppLanguage;

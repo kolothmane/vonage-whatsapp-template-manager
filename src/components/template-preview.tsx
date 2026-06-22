@@ -27,7 +27,7 @@ export function TemplatePreview({ template }: { template: TemplateRecord }) {
   const payloadJson = JSON.stringify(payload, null, 2);
   const rendered = template.body.replace(/\{\{(\d+)\}\}/g, (_match, value) => {
     const mapping = template.variableMappings.find((item) => item.placeholder === `{{${value}}}`);
-    return mapping ? `<${mapping.key}>` : `<ARG_${value}>`;
+    return mapping ? `<${mapping.key}>` : `{{${value}}}`;
   });
 
   function copyJson() {

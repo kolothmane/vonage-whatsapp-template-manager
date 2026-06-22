@@ -228,7 +228,6 @@ export async function saveTemplate(wabaId: string, template: NormalizedTemplate)
 
 export async function saveImportSubmission(params: {
   fileName: string;
-  wabaIds: string[];
   templates: NormalizedTemplate[];
   skippedRows: number[];
   duplicateCount: number;
@@ -239,18 +238,13 @@ export async function saveImportSubmission(params: {
 
   const now = new Date().toISOString();
   const importId = crypto.randomUUID();
-  const [wabas, existingTemplates, imports, logs] = await Promise.all([
-    listWabas(),
+  const [existingTemplates, imports, logs] = await Promise.all([
     readKvCollection<TemplateRecord>(KV_KEYS.templates),
     readKvCollection<ImportRecord>(KV_KEYS.imports),
     readKvCollection<LogRecord>(KV_KEYS.logs),
   ]);
-  const wabaNames = new Map(wabas.map((waba) => [waba.id, waba.name]));
-  const records: TemplateRecord[] = params.wabaIds.flatMap((wabaId) =>
-    params.templates.map((template) => ({
+  const records: TemplateRecord[] = params.templates.map((template) => ({
       id: crypto.randomUUID(),
-      wabaId,
-      wabaName: wabaNames.get(wabaId) ?? wabaId,
       brand: template.brand,
       language: template.language,
       whatsappLanguage: template.whatsappLanguage,
@@ -259,20 +253,19 @@ export async function saveImportSubmission(params: {
       body: template.normalizedBody,
       category: template.category,
       automation: template.automation,
-      status: "Submitted",
+      status: "Pending",
       variableMappings: template.variableMappings,
       createdAt: now,
       updatedAt: now,
-    })),
-  );
+    }));
   const importRecord: ImportRecord = {
     id: importId,
     fileName: params.fileName,
-    target: params.wabaIds.map((id) => wabaNames.get(id) ?? id).join(", "),
+    target: "Template Catalog",
     mode: "STRICT",
     status: "Completed",
     total: params.templates.length + params.skippedRows.length,
-    submitted: records.length,
+    submitted: 0,
     failed: 0,
     skipped: params.skippedRows.length,
     duplicates: params.duplicateCount,
@@ -281,13 +274,13 @@ export async function saveImportSubmission(params: {
   const newLogs: LogRecord[] = records.map((record) => ({
     id: crypto.randomUUID(),
     importId,
-    wabaId: record.wabaId,
-    wabaName: record.wabaName,
+    wabaId: "",
+    wabaName: "Template Catalog",
     templateName: record.generatedName,
     brand: record.brand,
     language: record.language,
-    status: "Submitted",
-    message: "Template registered from strict import.",
+    status: "Pending",
+    message: "Template added to the central catalog.",
     timestamp: now,
   }));
 
@@ -298,6 +291,31 @@ export async function saveImportSubmission(params: {
   ]);
 
   return { importRecord, records };
+}
+
+export async function saveWabaAssignments(wabaId: string, sourceTemplates: TemplateRecord[]) {
+  if (!hasKvConfig() || hasDatabaseUrl()) {
+    throw new Error("WABA assignment currently requires the configured Upstash KV backend.");
+  }
+
+  const now = new Date().toISOString();
+  const [wabas, existingTemplates] = await Promise.all([
+    listWabas(),
+    readKvCollection<TemplateRecord>(KV_KEYS.templates),
+  ]);
+  const wabaName = wabas.find((waba) => waba.id === wabaId)?.name ?? wabaId;
+  const assignments = sourceTemplates.map((template) => ({
+    ...template,
+    id: crypto.randomUUID(),
+    wabaId,
+    wabaName,
+    status: "Submitted" as const,
+    createdAt: now,
+    updatedAt: now,
+  }));
+
+  await getKv().set(KV_KEYS.templates, [...assignments, ...existingTemplates]);
+  return assignments;
 }
 
 export async function deleteTemplate(id: string) {

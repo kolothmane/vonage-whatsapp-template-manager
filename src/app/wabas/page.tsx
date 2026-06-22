@@ -1,4 +1,5 @@
 import { Search } from "lucide-react";
+import Link from "next/link";
 import { WabaSyncActions } from "@/components/waba-sync-actions";
 import { StatusBadge } from "@/components/status-badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -44,6 +45,7 @@ export default async function WabasPage() {
                   <TableHead>Country</TableHead>
                   <TableHead>Template Count</TableHead>
                   <TableHead>Last Sync</TableHead>
+                  <TableHead>Catalog</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -60,6 +62,11 @@ export default async function WabasPage() {
                     <TableCell>{waba.country}</TableCell>
                     <TableCell className="font-mono">{formatNumber(waba.templateCount)}</TableCell>
                     <TableCell>{formatDateTime(waba.lastSyncAt)}</TableCell>
+                    <TableCell>
+                      <Link className="font-medium text-primary hover:underline" href={`/wabas/${encodeURIComponent(waba.id)}`}>
+                        Choose templates
+                      </Link>
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>

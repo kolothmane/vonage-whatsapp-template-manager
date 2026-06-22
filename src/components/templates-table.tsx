@@ -43,7 +43,8 @@ export function TemplatesTable({ templates }: { templates: TemplateRecord[] }) {
       },
       {
         accessorKey: "wabaName",
-        header: "WABA",
+        header: "Location",
+        cell: ({ row }) => row.original.wabaName || "Catalog",
       },
       {
         accessorKey: "category",
@@ -84,7 +85,7 @@ export function TemplatesTable({ templates }: { templates: TemplateRecord[] }) {
             className="pl-9"
             value={globalFilter}
             onChange={(event) => setGlobalFilter(event.target.value)}
-            placeholder="Search generated name, brand, language or WABA"
+            placeholder="Search generated name, brand, language or location"
           />
         </div>
         <div className="text-sm text-muted-foreground">

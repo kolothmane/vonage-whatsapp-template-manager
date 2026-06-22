@@ -6,7 +6,6 @@ export async function POST(request: NextRequest) {
   const body = (await request.json().catch(() => ({}))) as {
     fileName?: string;
     rows?: Record<string, unknown>[];
-    targetWabaIds?: string[];
   };
 
   if (!body.fileName) {
@@ -21,15 +20,8 @@ export async function POST(request: NextRequest) {
       { status: 400 },
     );
   }
-  if (!Array.isArray(body.targetWabaIds) || !body.targetWabaIds.length) {
-    return NextResponse.json(
-      { error: "WABA_REQUIRED", message: "Select at least one connected WABA before submitting." },
-      { status: 400 },
-    );
-  }
-
   const existingTemplates = await listTemplates();
-  const report = validateImportRows(body.rows, existingTemplates, body.targetWabaIds);
+  const report = validateImportRows(body.rows, existingTemplates, ["catalog"]);
   const templates = getSubmittableTemplates(report);
   const skippedRows = [...new Set(
     report.issues
@@ -47,7 +39,6 @@ export async function POST(request: NextRequest) {
   try {
     const saved = await saveImportSubmission({
       fileName: body.fileName,
-      wabaIds: body.targetWabaIds,
       templates,
       skippedRows,
       duplicateCount: report.summary.duplicates,

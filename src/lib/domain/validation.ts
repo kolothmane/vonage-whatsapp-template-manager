@@ -161,7 +161,9 @@ export function validateImportRows(
 
     for (const wabaId of targetWabaIds) {
       const duplicate = existingTemplates.find(
-        (template) => template.wabaId === wabaId && template.generatedName === generatedName,
+        (template) =>
+          template.generatedName === generatedName &&
+          (wabaId === "catalog" ? !template.wabaId : template.wabaId === wabaId),
       );
       const batchKey = `${wabaId}:${generatedName}`;
 
@@ -171,7 +173,7 @@ export function validateImportRows(
           field: "Template Name",
           severity: "ERROR",
           code: "DUPLICATE_TEMPLATE",
-          message: `Duplicate template detected: ${generatedName} already exists in WABA ${duplicate.wabaName}. Submission blocked.`,
+          message: `Duplicate template detected: ${generatedName} already exists in ${duplicate.wabaName || "the central catalog"}. Submission blocked.`,
         });
       }
 
