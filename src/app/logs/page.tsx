@@ -1,8 +1,8 @@
-import { StatusBadge } from "@/components/status-badge";
+import { LogsExplorer } from "@/components/logs-explorer";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { IMPORT_STATUSES } from "@/lib/domain/types";
+import { STATUS_DESCRIPTIONS } from "@/lib/domain/log-statuses";
 import { listLogs } from "@/lib/server/repository";
-import { formatDateTime } from "@/lib/utils";
 
 export default async function LogsPage() {
   const logs = await listLogs();
@@ -16,38 +16,26 @@ export default async function LogsPage() {
 
       <Card>
         <CardHeader>
+          <CardTitle>Status Guide</CardTitle>
+          <CardDescription>Meaning of each template status shown in the operational logs.</CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          {IMPORT_STATUSES.map((status) => (
+            <div key={status} className="rounded-md border p-3">
+              <div className="mb-2"><span className="font-semibold">{status}</span></div>
+              <p className="text-sm text-muted-foreground">{STATUS_DESCRIPTIONS[status]}</p>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
           <CardTitle>Operational Log Stream</CardTitle>
           <CardDescription>Designed for 100,000+ records with server-side pagination in production.</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Timestamp</TableHead>
-                  <TableHead>Import</TableHead>
-                  <TableHead>WABA</TableHead>
-                  <TableHead>Template</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Message</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {logs.map((log) => (
-                  <TableRow key={log.id}>
-                    <TableCell>{formatDateTime(log.timestamp)}</TableCell>
-                    <TableCell className="font-mono text-xs">{log.importId}</TableCell>
-                    <TableCell>{log.wabaName}</TableCell>
-                    <TableCell className="font-mono text-xs">{log.templateName}</TableCell>
-                    <TableCell>
-                      <StatusBadge status={log.status} />
-                    </TableCell>
-                    <TableCell className="min-w-96 text-muted-foreground">{log.message}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
+          <LogsExplorer logs={logs} />
         </CardContent>
       </Card>
     </div>
