@@ -56,8 +56,9 @@ function parseVariableDefinitions(definitions?: string): Map<string, string> {
 export function normalizeVariables(
   body: string,
   definitions?: string,
-): { body: string; mappings: VariableMapping[] } {
+): { body: string; mappings: VariableMapping[]; missingDefinitions: `{{${number}}}`[] } {
   const mappings: VariableMapping[] = [];
+  const missingDefinitions: `{{${number}}}`[] = [];
   const sourceToPlaceholder = new Map<string, `{{${number}}}`>();
   const definitionLabels = parseVariableDefinitions(definitions);
   let index = 1;
@@ -71,11 +72,15 @@ export function normalizeVariables(
       const placeholder = `{{${existing[1]}}}` as `{{${number}}}`;
       if (!mappings.some((mapping) => mapping.placeholder === placeholder)) {
         const label = definitionLabels.get(existing[1]);
-        mappings.push({
-          placeholder,
-          key: label ? normalizeKey(label) : normalizeKey(source),
-          source: label ?? source,
-        });
+        if (label) {
+          mappings.push({
+            placeholder,
+            key: normalizeKey(label),
+            source: label,
+          });
+        } else if (!missingDefinitions.includes(placeholder)) {
+          missingDefinitions.push(placeholder);
+        }
       }
       return placeholder;
     }
@@ -94,7 +99,13 @@ export function normalizeVariables(
     return sourceToPlaceholder.get(canonical)!;
   });
 
-  return { body: normalizedBody, mappings: mappings.sort(sortByPlaceholder) };
+  return {
+    body: normalizedBody,
+    mappings: mappings.sort(sortByPlaceholder),
+    missingDefinitions: missingDefinitions.sort(
+      (a, b) => Number(a.replace(/\D/g, "")) - Number(b.replace(/\D/g, "")),
+    ),
+  };
 }
 
 export function hasInvalidPlaceholderSyntax(body: string): boolean {

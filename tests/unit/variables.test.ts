@@ -12,11 +12,12 @@ describe("normalizeVariables", () => {
     ]);
   });
 
-  it("keeps existing WhatsApp placeholders", () => {
+  it("reports numbered placeholders without labels instead of inventing ARG keys", () => {
     const result = normalizeVariables("Hello {{1}}");
 
     expect(result.body).toBe("Hello {{1}}");
-    expect(result.mappings[0]).toMatchObject({ placeholder: "{{1}}", key: "ARG_1" });
+    expect(result.mappings).toEqual([]);
+    expect(result.missingDefinitions).toEqual(["{{1}}"]);
   });
 
   it("uses labels from Body Variables for numbered placeholders", () => {
@@ -30,6 +31,7 @@ describe("normalizeVariables", () => {
       { placeholder: "{{2}}", key: "ADVISOR_NAME", source: "Advisor Name" },
       { placeholder: "{{3}}", key: "STORE_NAME", source: "Store Name" },
     ]);
+    expect(result.missingDefinitions).toEqual([]);
   });
 
   it("accepts separators in Body Variables definitions", () => {

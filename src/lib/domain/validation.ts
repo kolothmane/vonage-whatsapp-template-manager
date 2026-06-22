@@ -192,6 +192,16 @@ export function validateImportRows(
       row["Template Body"],
       row["Body Variables"] || row["Body Parameters"],
     );
+    for (const placeholder of variableResult.missingDefinitions) {
+      issues.push({
+        rowNumber,
+        field: "Body Variables",
+        severity: "ERROR",
+        code: "MISSING_VARIABLE_LABEL",
+        message: `${placeholder} requires an explicit label in Body Variables, for example "${placeholder} Customer Name".`,
+      });
+    }
+
     templates.push({
       rowNumber,
       brand: brand as SupportedBrand,

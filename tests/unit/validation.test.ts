@@ -92,6 +92,7 @@ describe("validateImportRows", () => {
           Language: "ES",
           "Template Name": "Cambio de numero de telefono",
           "Template Body": "Hola {{1}}, este es mi nuevo numero.",
+          "Body Variables": "{{1}} Customer Name",
           "Template Type": "Proactive Contact",
         },
         {
@@ -99,6 +100,7 @@ describe("validateImportRows", () => {
           Language: "ES",
           "Template Name": "Gracias por tu compra",
           "Template Body": "Hola {{1}}, gracias por tu compra.",
+          "Body Variables": "{{1}} Customer Name",
           "Template Type": "Automation",
         },
       ],
@@ -131,5 +133,32 @@ describe("validateImportRows", () => {
       "STAFF_NAME",
       "STORE",
     ]);
+  });
+
+  it("blocks numbered placeholders without explicit labels", () => {
+    const report = validateImportRows(
+      [
+        {
+          BRAND: "KA",
+          Language: "ES",
+          "Template Name": "Missing variable label",
+          "Template Body": "Hello {{1}} from {{2}}.",
+          "Body Variables": "{{1}} Customer Name",
+          "Template Type": "Proactive Contact",
+        },
+      ],
+      [],
+      ["waba-br"],
+    );
+
+    expect(report.valid).toBe(false);
+    expect(report.issues).toContainEqual(
+      expect.objectContaining({
+        field: "Body Variables",
+        code: "MISSING_VARIABLE_LABEL",
+        message: expect.stringContaining("{{2}}"),
+      }),
+    );
+    expect(report.templates[0].variableMappings.map((mapping) => mapping.key)).toEqual(["CUSTOMER_NAME"]);
   });
 });
