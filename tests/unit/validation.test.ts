@@ -109,4 +109,27 @@ describe("validateImportRows", () => {
     expect(report.valid).toBe(true);
     expect(report.templates.map((template) => template.category)).toEqual(["MARKETING", "UTILITY"]);
   });
+
+  it("maps workbook Body Variables to semantic keys", () => {
+    const report = validateImportRows(
+      [
+        {
+          BRAND: "KA",
+          Language: "ES",
+          "Template Name": "Phone number change",
+          "Template Body": "Dear {{1}}, this is {{2}} from {{3}}.",
+          "Body Variables": "{{1}} Customer Name\n{{2}} Staff Name\n{{3}} Store",
+          "Template Type": "Proactive Contact",
+        },
+      ],
+      [],
+      ["waba-br"],
+    );
+
+    expect(report.templates[0].variableMappings.map((mapping) => mapping.key)).toEqual([
+      "CUSTOMER_NAME",
+      "STAFF_NAME",
+      "STORE",
+    ]);
+  });
 });

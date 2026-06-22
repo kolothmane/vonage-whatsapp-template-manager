@@ -19,6 +19,28 @@ describe("normalizeVariables", () => {
     expect(result.mappings[0]).toMatchObject({ placeholder: "{{1}}", key: "ARG_1" });
   });
 
+  it("uses labels from Body Variables for numbered placeholders", () => {
+    const result = normalizeVariables(
+      "Hello {{1}}, this is {{2}} from {{3}}.",
+      "{{1}} Customer Name\n{{2}} Advisor Name\n{{3}} Store Name",
+    );
+
+    expect(result.mappings).toEqual([
+      { placeholder: "{{1}}", key: "CUSTOMER_NAME", source: "Customer Name" },
+      { placeholder: "{{2}}", key: "ADVISOR_NAME", source: "Advisor Name" },
+      { placeholder: "{{3}}", key: "STORE_NAME", source: "Store Name" },
+    ]);
+  });
+
+  it("accepts separators in Body Variables definitions", () => {
+    const result = normalizeVariables(
+      "Hello {{1}} from {{2}}.",
+      "{{1}}: First Name\r\n{{2}} - Staff Name",
+    );
+
+    expect(result.mappings.map((mapping) => mapping.key)).toEqual(["FIRST_NAME", "STAFF_NAME"]);
+  });
+
   it("normalizes triple-brace and CRM placeholders", () => {
     const result = normalizeVariables("Hi {{{Sender.FirstName}}} from {!User.FirstName}");
 

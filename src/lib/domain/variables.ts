@@ -35,9 +35,31 @@ function normalizeKey(source: string): string {
     .replace(/^_+|_+$/g, "");
 }
 
-export function normalizeVariables(body: string): { body: string; mappings: VariableMapping[] } {
+function parseVariableDefinitions(definitions?: string): Map<string, string> {
+  const labels = new Map<string, string>();
+
+  for (const line of definitions?.split(/\r?\n/) ?? []) {
+    const match = line.trim().match(/^\{\{(\d+)\}\}\s*[:=\-]?\s*(.+)$/);
+    if (!match) {
+      continue;
+    }
+
+    const label = match[2].trim();
+    if (label) {
+      labels.set(match[1], label);
+    }
+  }
+
+  return labels;
+}
+
+export function normalizeVariables(
+  body: string,
+  definitions?: string,
+): { body: string; mappings: VariableMapping[] } {
   const mappings: VariableMapping[] = [];
   const sourceToPlaceholder = new Map<string, `{{${number}}}`>();
+  const definitionLabels = parseVariableDefinitions(definitions);
   let index = 1;
 
   const normalizedBody = body.replace(VARIABLE_PATTERN, (match) => {
@@ -48,10 +70,11 @@ export function normalizeVariables(body: string): { body: string; mappings: Vari
     if (existing) {
       const placeholder = `{{${existing[1]}}}` as `{{${number}}}`;
       if (!mappings.some((mapping) => mapping.placeholder === placeholder)) {
+        const label = definitionLabels.get(existing[1]);
         mappings.push({
           placeholder,
-          key: normalizeKey(source),
-          source,
+          key: label ? normalizeKey(label) : normalizeKey(source),
+          source: label ?? source,
         });
       }
       return placeholder;

@@ -188,7 +188,10 @@ export function validateImportRows(
       seenInBatch.add(batchKey);
     }
 
-    const variableResult = normalizeVariables(row["Template Body"]);
+    const variableResult = normalizeVariables(
+      row["Template Body"],
+      row["Body Variables"] || row["Body Parameters"],
+    );
     templates.push({
       rowNumber,
       brand: brand as SupportedBrand,
