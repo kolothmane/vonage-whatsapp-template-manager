@@ -20,6 +20,28 @@ import { formatDateTime } from "@/lib/utils";
 
 export function TemplatesTable({ templates }: { templates: TemplateRecord[] }) {
   const [globalFilter, setGlobalFilter] = useState("");
+  const [brandFilter, setBrandFilter] = useState("ALL");
+  const [languageFilter, setLanguageFilter] = useState("ALL");
+  const [statusFilter, setStatusFilter] = useState("ALL");
+  const [locationFilter, setLocationFilter] = useState("ALL");
+  const brands = useMemo(() => [...new Set(templates.map((template) => template.brand))].sort(), [templates]);
+  const languages = useMemo(() => [...new Set(templates.map((template) => template.language))].sort(), [templates]);
+  const statuses = useMemo(() => [...new Set(templates.map((template) => template.status))].sort(), [templates]);
+  const locations = useMemo(
+    () => [...new Set(templates.map((template) => template.wabaName || "Catalog"))].sort(),
+    [templates],
+  );
+  const filteredTemplates = useMemo(
+    () =>
+      templates.filter(
+        (template) =>
+          (brandFilter === "ALL" || template.brand === brandFilter) &&
+          (languageFilter === "ALL" || template.language === languageFilter) &&
+          (statusFilter === "ALL" || template.status === statusFilter) &&
+          (locationFilter === "ALL" || (template.wabaName || "Catalog") === locationFilter),
+      ),
+    [brandFilter, languageFilter, locationFilter, statusFilter, templates],
+  );
 
   const columns = useMemo<ColumnDef<TemplateRecord>[]>(
     () => [
@@ -65,7 +87,7 @@ export function TemplatesTable({ templates }: { templates: TemplateRecord[] }) {
   );
 
   const table = useReactTable({
-    data: templates,
+    data: filteredTemplates,
     columns,
     state: { globalFilter },
     onGlobalFilterChange: setGlobalFilter,
@@ -78,7 +100,7 @@ export function TemplatesTable({ templates }: { templates: TemplateRecord[] }) {
 
   return (
     <div className="grid gap-4">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="grid gap-3 lg:grid-cols-[minmax(260px,1fr)_repeat(4,minmax(130px,170px))]">
         <div className="relative max-w-xl flex-1">
           <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
           <Input
@@ -88,9 +110,13 @@ export function TemplatesTable({ templates }: { templates: TemplateRecord[] }) {
             placeholder="Search generated name, brand, language or location"
           />
         </div>
-        <div className="text-sm text-muted-foreground">
-          {table.getFilteredRowModel().rows.length} of {templates.length} templates
-        </div>
+        <TemplateSelect label="Brand" value={brandFilter} values={brands} onChange={setBrandFilter} />
+        <TemplateSelect label="Language" value={languageFilter} values={languages} onChange={setLanguageFilter} />
+        <TemplateSelect label="Status" value={statusFilter} values={statuses} onChange={setStatusFilter} />
+        <TemplateSelect label="Location" value={locationFilter} values={locations} onChange={setLocationFilter} />
+      </div>
+      <div className="text-sm text-muted-foreground">
+        {table.getFilteredRowModel().rows.length} of {templates.length} templates
       </div>
 
       <div className="overflow-x-auto rounded-md border">
@@ -138,5 +164,32 @@ export function TemplatesTable({ templates }: { templates: TemplateRecord[] }) {
         </Button>
       </div>
     </div>
+  );
+}
+
+function TemplateSelect({
+  label,
+  value,
+  values,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  values: string[];
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label>
+      <span className="sr-only">{label}</span>
+      <select
+        aria-label={label}
+        className="h-10 w-full rounded-md border bg-white px-3 text-sm"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      >
+        <option value="ALL">All {label.toLowerCase()}s</option>
+        {values.map((item) => <option key={item} value={item}>{item}</option>)}
+      </select>
+    </label>
   );
 }
