@@ -53,7 +53,19 @@ export function TemplatesTable({ templates }: { templates: TemplateRecord[] }) {
     () => [
       {
         id: "select",
-        header: "Select",
+        header: () => (
+          <input
+            aria-label="Select all filtered templates"
+            checked={filteredTemplates.length > 0 && filteredTemplates.every((template) => selected.includes(template.id))}
+            className="h-4 w-4"
+            onChange={(event) =>
+              event.target.checked
+                ? selectIds(filteredTemplates.map((template) => template.id))
+                : setSelected((current) => current.filter((id) => !filteredTemplates.some((template) => template.id === id)))
+            }
+            type="checkbox"
+          />
+        ),
         cell: ({ row }) => (
           <input
             aria-label={`Select ${row.original.generatedName}`}
@@ -108,7 +120,7 @@ export function TemplatesTable({ templates }: { templates: TemplateRecord[] }) {
         cell: ({ row }) => formatDateTime(row.original.updatedAt),
       },
     ],
-    [selected],
+    [filteredTemplates, selected],
   );
 
   const table = useReactTable({
@@ -176,6 +188,9 @@ export function TemplatesTable({ templates }: { templates: TemplateRecord[] }) {
       <div className="flex flex-wrap items-center gap-2">
         <Button variant="outline" size="sm" onClick={() => selectIds(pageIds)} disabled={!pageIds.length}>Select page</Button>
         <Button variant="outline" size="sm" onClick={() => selectIds(filteredIds)} disabled={!filteredIds.length}>Select all filtered</Button>
+        <Button variant="outline" size="sm" onClick={() => setSelected(templates.map((template) => template.id))} disabled={!templates.length}>
+          Select all {templates.length}
+        </Button>
         <Button variant="ghost" size="sm" onClick={() => setSelected([])} disabled={!selected.length}>Clear selection</Button>
         <Button
           variant="outline"
@@ -239,15 +254,19 @@ export function TemplatesTable({ templates }: { templates: TemplateRecord[] }) {
         </Button>
       </div>
       {editing ? (
-        <TemplateEditor
-          template={editing}
-          onClose={() => setEditing(null)}
-          onSaved={() => {
-            setEditing(null);
-            setSelected([]);
-            router.refresh();
-          }}
-        />
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 p-4" role="dialog" aria-modal="true">
+          <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-md bg-white shadow-xl">
+            <TemplateEditor
+              template={editing}
+              onClose={() => setEditing(null)}
+              onSaved={() => {
+                setEditing(null);
+                setSelected([]);
+                router.refresh();
+              }}
+            />
+          </div>
+        </div>
       ) : null}
     </div>
   );

@@ -7,9 +7,10 @@ import { readSheet } from "read-excel-file/browser";
 import { CheckCircle2, Copy, Download, FileJson, RefreshCw, Send, ShieldAlert, UploadCloud } from "lucide-react";
 import { generateVonagePayload } from "@/lib/domain/payload";
 import { generateTemplateName } from "@/lib/domain/template-name";
+import { normalizeVariables } from "@/lib/domain/variables";
 import { getSubmittableTemplates, validateImportRows } from "@/lib/domain/validation";
 import { normalizeImportRows } from "@/lib/domain/import-normalization";
-import type { TemplateRecord, ValidationReport } from "@/lib/domain/types";
+import { TEMPLATE_CATEGORIES, type NormalizedTemplate, type TemplateRecord, type ValidationReport } from "@/lib/domain/types";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -29,7 +30,8 @@ export function ImportWizard({ templates }: ImportWizardProps) {
   const [fileName, setFileName] = useState("");
   const [rows, setRows] = useState<Record<string, unknown>[]>([]);
   const [report, setReport] = useState<ValidationReport | null>(null);
-  const [overrides, setOverrides] = useState<Record<number, string>>({});
+  const [templateEdits, setTemplateEdits] = useState<Record<number, NormalizedTemplate>>({});
+  const [editingTemplate, setEditingTemplate] = useState<NormalizedTemplate | null>(null);
   const [submitState, setSubmitState] = useState<"idle" | "blocked" | "submitting" | "submitted" | "error">("idle");
   const [submitMessage, setSubmitMessage] = useState("");
   const [parseError, setParseError] = useState("");
@@ -39,10 +41,10 @@ export function ImportWizard({ templates }: ImportWizardProps) {
     return (
       submittableTemplates.map((template) => ({
         ...template,
-        generatedName: overrides[template.rowNumber] || template.generatedName,
+        ...(templateEdits[template.rowNumber] ?? {}),
       }))
     );
-  }, [overrides, report]);
+  }, [report, templateEdits]);
 
   const payloads = useMemo(() => transformedTemplates.map(generateVonagePayload), [transformedTemplates]);
   const currentPayload = payloads[0] ? JSON.stringify(payloads[0], null, 2) : "";
@@ -65,7 +67,7 @@ export function ImportWizard({ templates }: ImportWizardProps) {
     setFileName(file.name);
     setReport(null);
     setSubmitState("idle");
-    setOverrides({});
+    setTemplateEdits({});
 
     try {
       const parsedRows = await parseImportFile(file);
@@ -89,11 +91,15 @@ export function ImportWizard({ templates }: ImportWizardProps) {
       return;
     }
 
-    const regenerated: Record<number, string> = {};
+    const regenerated: Record<number, NormalizedTemplate> = {};
     for (const template of getSubmittableTemplates(report)) {
-      regenerated[template.rowNumber] = generateTemplateName(template.originalName, template.language);
+      const current = templateEdits[template.rowNumber] ?? template;
+      regenerated[template.rowNumber] = {
+        ...current,
+        generatedName: generateTemplateName(current.originalName, current.language),
+      };
     }
-    setOverrides(regenerated);
+    setTemplateEdits((current) => ({ ...current, ...regenerated }));
     setActiveStep(3);
   }
 
@@ -302,6 +308,7 @@ export function ImportWizard({ templates }: ImportWizardProps) {
                     <TableHead>Generated Name</TableHead>
                     <TableHead>Body</TableHead>
                     <TableHead>Variables</TableHead>
+                    <TableHead>Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -314,17 +321,16 @@ export function ImportWizard({ templates }: ImportWizardProps) {
                         {template.whatsappLanguage}
                       </TableCell>
                       <TableCell>
-                        <Input
-                          className="min-w-72 font-mono text-xs"
-                          value={template.generatedName}
-                          onChange={(event) =>
-                            setOverrides((current) => ({ ...current, [template.rowNumber]: event.target.value }))
-                          }
-                        />
+                        <span className="font-mono text-xs">{template.generatedName}</span>
                       </TableCell>
                       <TableCell className="min-w-96 text-muted-foreground">{template.normalizedBody}</TableCell>
                       <TableCell className="font-mono text-xs">
                         {template.variableMappings.map((mapping) => `${mapping.placeholder}=${mapping.key}`).join(", ") || "-"}
+                      </TableCell>
+                      <TableCell>
+                        <Button variant="outline" size="sm" onClick={() => setEditingTemplate(template)}>
+                          Edit
+                        </Button>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -424,6 +430,88 @@ export function ImportWizard({ templates }: ImportWizardProps) {
           </CardContent>
         </Card>
       ) : null}
+      {editingTemplate ? (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 p-4" role="dialog" aria-modal="true">
+          <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-md bg-white shadow-xl">
+            <ImportTemplateEditor
+              template={editingTemplate}
+              onClose={() => setEditingTemplate(null)}
+              onSave={(template) => {
+                setTemplateEdits((current) => ({ ...current, [template.rowNumber]: template }));
+                setEditingTemplate(null);
+              }}
+            />
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function ImportTemplateEditor({
+  template,
+  onClose,
+  onSave,
+}: {
+  template: NormalizedTemplate;
+  onClose: () => void;
+  onSave: (template: NormalizedTemplate) => void;
+}) {
+  const [name, setName] = useState(template.originalName);
+  const [body, setBody] = useState(template.normalizedBody);
+  const [category, setCategory] = useState(template.category);
+  const [automation, setAutomation] = useState(template.automation);
+  const [definitions, setDefinitions] = useState(
+    template.variableMappings.map((mapping) => `${mapping.placeholder} ${mapping.source}`).join("\n"),
+  );
+  const [message, setMessage] = useState("");
+
+  function save() {
+    if (!name.trim() || !body.trim()) {
+      setMessage("Template Name and Template Body are required.");
+      return;
+    }
+    const variables = normalizeVariables(body, definitions);
+    if (variables.missingDefinitions.length) {
+      setMessage(`Missing labels for ${variables.missingDefinitions.join(", ")}.`);
+      return;
+    }
+    onSave({
+      ...template,
+      originalName: name.trim(),
+      generatedName: generateTemplateName(name, template.language),
+      body: body.trim(),
+      normalizedBody: variables.body,
+      category,
+      automation: automation.trim() || "Manual",
+      variableMappings: variables.mappings,
+    });
+  }
+
+  return (
+    <div className="grid gap-4 p-5">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="font-semibold">Edit Before Submission</h3>
+          <p className="text-xs text-muted-foreground">Row {template.rowNumber} / {template.brand} / {template.language}</p>
+        </div>
+        <Button variant="ghost" size="sm" onClick={onClose}>Close</Button>
+      </div>
+      <label className="grid gap-1 text-sm">Template Name<Input value={name} onChange={(event) => setName(event.target.value)} /></label>
+      <label className="grid gap-1 text-sm">
+        Category
+        <select className="h-10 rounded-md border bg-white px-3" value={category} onChange={(event) => setCategory(event.target.value as NormalizedTemplate["category"])}>
+          {TEMPLATE_CATEGORIES.map((item) => <option key={item} value={item}>{item}</option>)}
+        </select>
+      </label>
+      <label className="grid gap-1 text-sm">Automation<Input value={automation} onChange={(event) => setAutomation(event.target.value)} /></label>
+      <label className="grid gap-1 text-sm">Body Variables<textarea className="min-h-24 rounded-md border p-3 text-sm" value={definitions} onChange={(event) => setDefinitions(event.target.value)} /></label>
+      <label className="grid gap-1 text-sm">Template Body<textarea className="min-h-48 rounded-md border p-3 text-sm" value={body} onChange={(event) => setBody(event.target.value)} /></label>
+      {message ? <p className="text-sm text-red-700">{message}</p> : null}
+      <div className="flex justify-end gap-2">
+        <Button variant="outline" onClick={onClose}>Cancel</Button>
+        <Button onClick={save}>Apply changes</Button>
+      </div>
     </div>
   );
 }

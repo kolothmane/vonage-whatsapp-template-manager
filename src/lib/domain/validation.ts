@@ -40,7 +40,7 @@ const CATEGORY_ALIASES: Record<string, TemplateCategory> = {
   UTILITY: "UTILITY",
   AUTHENTICATION: "AUTHENTICATION",
   "PROACTIVE CONTACT": "MARKETING",
-  AUTOMATION: "UTILITY",
+  AUTOMATION: "MARKETING",
 };
 
 export function validateSpreadsheetStructure(rows: Record<string, unknown>[]): ValidationIssue[] {

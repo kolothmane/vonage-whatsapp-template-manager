@@ -110,7 +110,7 @@ describe("validateImportRows", () => {
     );
 
     expect(report.valid).toBe(true);
-    expect(report.templates.map((template) => template.category)).toEqual(["MARKETING", "UTILITY"]);
+    expect(report.templates.map((template) => template.category)).toEqual(["MARKETING", "MARKETING"]);
   });
 
   it.each(["DBS", "JPG", "PEN", "PR", "SHA"] as const)(
