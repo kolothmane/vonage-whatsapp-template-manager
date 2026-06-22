@@ -12,8 +12,21 @@ export function WabaTemplateSelector({ waba, templates }: { waba: Waba; template
   const suggestions = useMemo(() => suggestTemplatesForWaba(waba, templates), [templates, waba]);
   const suggestedIds = useMemo(() => new Set(suggestions.map((template) => template.id)), [suggestions]);
   const [selected, setSelected] = useState<string[]>(() => suggestions.map((template) => template.id));
+  const [brandFilter, setBrandFilter] = useState("ALL");
+  const [languageFilter, setLanguageFilter] = useState("ALL");
   const [state, setState] = useState<"idle" | "submitting" | "done" | "error">("idle");
   const [message, setMessage] = useState("");
+  const brands = useMemo(() => [...new Set(templates.map((template) => template.brand))].sort(), [templates]);
+  const languages = useMemo(() => [...new Set(templates.map((template) => template.language))].sort(), [templates]);
+  const visibleTemplates = useMemo(
+    () =>
+      templates.filter(
+        (template) =>
+          (brandFilter === "ALL" || template.brand === brandFilter) &&
+          (languageFilter === "ALL" || template.language === languageFilter),
+      ),
+    [brandFilter, languageFilter, templates],
+  );
 
   function toggle(id: string) {
     setSelected((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
@@ -60,6 +73,31 @@ export function WabaTemplateSelector({ waba, templates }: { waba: Waba; template
         </div>
       </div>
       {message ? <p className={state === "error" ? "text-sm text-red-700" : "text-sm text-emerald-700"}>{message}</p> : null}
+      <div className="flex flex-wrap items-end gap-3">
+        <label className="grid gap-1 text-xs font-medium text-muted-foreground">
+          Brand
+          <select
+            className="h-9 min-w-40 rounded-md border bg-white px-3 text-sm text-foreground"
+            value={brandFilter}
+            onChange={(event) => setBrandFilter(event.target.value)}
+          >
+            <option value="ALL">All brands</option>
+            {brands.map((brand) => <option key={brand} value={brand}>{brand}</option>)}
+          </select>
+        </label>
+        <label className="grid gap-1 text-xs font-medium text-muted-foreground">
+          Language
+          <select
+            className="h-9 min-w-40 rounded-md border bg-white px-3 text-sm text-foreground"
+            value={languageFilter}
+            onChange={(event) => setLanguageFilter(event.target.value)}
+          >
+            <option value="ALL">All languages</option>
+            {languages.map((language) => <option key={language} value={language}>{language}</option>)}
+          </select>
+        </label>
+        <p className="pb-2 text-xs text-muted-foreground">{visibleTemplates.length} template(s) shown.</p>
+      </div>
       <div className="overflow-x-auto rounded-md border">
         <Table>
           <TableHeader>
@@ -73,7 +111,7 @@ export function WabaTemplateSelector({ waba, templates }: { waba: Waba; template
             </TableRow>
           </TableHeader>
           <TableBody>
-            {templates.map((template) => (
+            {visibleTemplates.map((template) => (
               <TableRow key={template.id}>
                 <TableCell>
                   <input
@@ -91,10 +129,10 @@ export function WabaTemplateSelector({ waba, templates }: { waba: Waba; template
                 <TableCell>{suggestedIds.has(template.id) ? <Badge>Suggested</Badge> : "-"}</TableCell>
               </TableRow>
             ))}
-            {!templates.length ? (
+            {!visibleTemplates.length ? (
               <TableRow>
                 <TableCell className="h-24 text-center text-muted-foreground" colSpan={6}>
-                  The central catalog is empty.
+                  No catalog templates match these filters.
                 </TableCell>
               </TableRow>
             ) : null}
