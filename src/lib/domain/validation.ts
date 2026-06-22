@@ -19,23 +19,29 @@ import {
 export const REQUIRED_COLUMNS = [
   "BRAND",
   "Language",
-  "Template",
   "Template Name",
   "Template Body",
   "Template Type",
 ] as const;
 
 const importRowSchema = z.object({
-  BRAND: z.string().min(1),
-  Language: z.string().min(1),
-  Template: z.string().min(1),
-  "Template Name": z.string().min(1),
-  "Template Body": z.string().min(1),
+  BRAND: z.string().trim().min(1, "Brand is required."),
+  Language: z.string().trim().min(1, "Language is required."),
+  "Template Name": z.string().trim().min(1, "Template Name is required."),
+  "Template Body": z.string().trim().min(1, "Template Body is required."),
   "Body Variables": z.string().optional(),
   "Body Parameters": z.string().optional(),
   "Template Type": z.string().min(1),
   Automation: z.string().optional(),
 });
+
+const CATEGORY_ALIASES: Record<string, TemplateCategory> = {
+  MARKETING: "MARKETING",
+  UTILITY: "UTILITY",
+  AUTHENTICATION: "AUTHENTICATION",
+  "PROACTIVE CONTACT": "MARKETING",
+  AUTOMATION: "UTILITY",
+};
 
 export function validateSpreadsheetStructure(rows: Record<string, unknown>[]): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
@@ -65,7 +71,8 @@ export function validateImportRows(
   const seenInBatch = new Set<string>();
 
   rawRows.forEach((rawRow, index) => {
-    const rowNumber = index + 2;
+    const sourceRow = Number(rawRow.__sourceRow);
+    const rowNumber = Number.isInteger(sourceRow) && sourceRow >= 2 ? sourceRow : index + 2;
     const result = importRowSchema.safeParse(rawRow);
 
     if (!result.success) {
@@ -84,7 +91,8 @@ export function validateImportRows(
     const row = result.data as ImportRow;
     const brand = row.BRAND.trim().toUpperCase();
     const language = row.Language.trim().toUpperCase();
-    const category = row["Template Type"].trim().toUpperCase();
+    const rawCategory = row["Template Type"].trim().toUpperCase();
+    const category = CATEGORY_ALIASES[rawCategory];
 
     if (!SUPPORTED_BRANDS.includes(brand as SupportedBrand)) {
       issues.push({
@@ -107,13 +115,13 @@ export function validateImportRows(
       return;
     }
 
-    if (!TEMPLATE_CATEGORIES.includes(category as TemplateCategory)) {
+    if (!category || !TEMPLATE_CATEGORIES.includes(category)) {
       issues.push({
         rowNumber,
         field: "Template Type",
         severity: "ERROR",
         code: "INVALID_CATEGORY",
-        message: `Invalid category: ${row["Template Type"]}.`,
+        message: `Unsupported template type: ${row["Template Type"]}. Expected Proactive Contact, Automation, MARKETING, UTILITY or AUTHENTICATION.`,
       });
     }
 
@@ -139,7 +147,7 @@ export function validateImportRows(
 
     let generatedName = "";
     try {
-      generatedName = generateTemplateName(row["Template Name"], language);
+      generatedName = generateTemplateName(`${brand} ${row["Template Name"]}`, language);
     } catch (error) {
       issues.push({
         rowNumber,
@@ -190,7 +198,7 @@ export function validateImportRows(
       generatedName,
       body: row["Template Body"],
       normalizedBody: variableResult.body,
-      category: category as TemplateCategory,
+      category: category ?? "MARKETING",
       automation: row.Automation?.trim() || "Manual",
       variableMappings: variableResult.mappings,
     });

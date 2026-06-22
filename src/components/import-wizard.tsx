@@ -7,6 +7,7 @@ import { CheckCircle2, Copy, Download, FileJson, RefreshCw, Send, ShieldAlert, U
 import { generateVonagePayload } from "@/lib/domain/payload";
 import { generateTemplateName } from "@/lib/domain/template-name";
 import { validateImportRows } from "@/lib/domain/validation";
+import { normalizeImportRows } from "@/lib/domain/import-normalization";
 import type { TemplateRecord, ValidationReport, Waba } from "@/lib/domain/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -387,7 +388,7 @@ function TargetSelector({
 }
 
 function ImportPreview({ rows }: { rows: Record<string, unknown>[] }) {
-  const columns = Object.keys(rows[0] ?? {}).slice(0, 8);
+  const columns = Object.keys(rows[0] ?? {}).filter((column) => !column.startsWith("__")).slice(0, 8);
 
   return (
     <div className="overflow-x-auto rounded-md border">
@@ -435,10 +436,10 @@ async function parseImportFile(file: File): Promise<Record<string, unknown>[]> {
     const text = await file.text();
     const parsed = JSON.parse(text) as unknown;
     if (Array.isArray(parsed)) {
-      return parsed as Record<string, unknown>[];
+      return normalizeImportRows(parsed as Record<string, unknown>[]);
     }
     if (parsed && typeof parsed === "object" && Array.isArray((parsed as { templates?: unknown[] }).templates)) {
-      return (parsed as { templates: Record<string, unknown>[] }).templates;
+      return normalizeImportRows((parsed as { templates: Record<string, unknown>[] }).templates);
     }
     throw new Error("JSON must be an array or contain a templates array.");
   }
@@ -448,11 +449,13 @@ async function parseImportFile(file: File): Promise<Record<string, unknown>[]> {
     const [headerRow, ...dataRows] = sheetRows;
     const headers = (headerRow ?? []).map((value) => String(value ?? ""));
 
-    return dataRows
+    return normalizeImportRows(
+      dataRows
       .filter((row) => row.some((value) => value !== null && value !== ""))
       .map((row) =>
-        Object.fromEntries(headers.map((header, index) => [header, row[index] ?? ""])),
-      );
+        Object.fromEntries(headers.map((header, index) => [header.trim(), row[index] ?? ""])),
+      ),
+    );
   }
 
   const text = await file.text();
@@ -465,5 +468,5 @@ async function parseImportFile(file: File): Promise<Record<string, unknown>[]> {
     throw new Error(parsed.errors[0].message);
   }
 
-  return parsed.data;
+  return normalizeImportRows(parsed.data);
 }
