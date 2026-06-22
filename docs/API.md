@@ -10,7 +10,7 @@ Returns connected WABAs with name, ID, status, country, template count and last 
 
 `POST /api/wabas`
 
-Retrieves WABAs from Vonage when `VONAGE_API_KEY`, `VONAGE_API_SECRET`, `VONAGE_APPLICATION_ID` and `VONAGE_PRIVATE_KEY` are configured.
+Retrieves WABAs from Vonage when `VONAGE_API_KEY` and `VONAGE_API_SECRET` are configured.
 
 ## Templates
 

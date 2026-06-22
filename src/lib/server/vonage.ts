@@ -3,21 +3,16 @@ import type { VonageTemplatePayload, Waba } from "@/lib/domain/types";
 type VonageConfig = {
   apiKey: string;
   apiSecret: string;
-  applicationId: string;
-  privateKey: string;
 };
 
 function getVonageConfig(): VonageConfig {
   const apiKey = process.env.VONAGE_API_KEY;
   const apiSecret = process.env.VONAGE_API_SECRET;
-  const applicationId = process.env.VONAGE_APPLICATION_ID;
-  const privateKey = process.env.VONAGE_PRIVATE_KEY;
-
-  if (!apiKey || !apiSecret || !applicationId || !privateKey) {
-    throw new Error("Vonage credentials are not fully configured.");
+  if (!apiKey || !apiSecret) {
+    throw new Error("VONAGE_API_KEY and VONAGE_API_SECRET are required.");
   }
 
-  return { apiKey, apiSecret, applicationId, privateKey };
+  return { apiKey, apiSecret };
 }
 
 function basicAuth(config: VonageConfig) {
