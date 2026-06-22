@@ -15,4 +15,8 @@ describe("generateTemplateName", () => {
   it("rejects unsupported languages", () => {
     expect(() => generateTemplateName("Hello", "NL")).toThrow("Unsupported language");
   });
+
+  it("maps the catalog DU code to the Dutch WhatsApp suffix", () => {
+    expect(generateTemplateName("Thank you", "DU")).toBe("thank_you_nl");
+  });
 });

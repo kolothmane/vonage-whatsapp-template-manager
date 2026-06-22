@@ -211,4 +211,28 @@ describe("validateImportRows", () => {
     expect(report.valid).toBe(false);
     expect(getSubmittableTemplates(report).map((template) => template.rowNumber)).toEqual([2]);
   });
+
+  it("accepts DU catalog rows as Dutch WhatsApp templates", () => {
+    const report = validateImportRows(
+      [
+        {
+          BRAND: "PR",
+          Language: "DU",
+          "Template Name": "Bedankt",
+          "Template Body": "Hallo {{1}}.",
+          "Body Variables": "{{1}} Customer Name",
+          "Template Type": "Proactive Contact",
+        },
+      ],
+      [],
+      ["waba-br"],
+    );
+
+    expect(report.valid).toBe(true);
+    expect(report.templates[0]).toMatchObject({
+      language: "DU",
+      whatsappLanguage: "nl",
+      generatedName: "pr_bedankt_nl",
+    });
+  });
 });

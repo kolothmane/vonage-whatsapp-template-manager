@@ -14,7 +14,7 @@ export const SUPPORTED_BRANDS = [
   "PR",
   "SHA",
 ] as const;
-export const SUPPORTED_LANGUAGES = ["EN", "FR", "ES", "PT", "IT", "DE"] as const;
+export const SUPPORTED_LANGUAGES = ["EN", "FR", "ES", "PT", "IT", "DE", "DU"] as const;
 
 export const LANGUAGE_MAP = {
   EN: "en",
@@ -23,6 +23,7 @@ export const LANGUAGE_MAP = {
   PT: "pt",
   IT: "it",
   DE: "de",
+  DU: "nl",
 } as const;
 
 export const TEMPLATE_CATEGORIES = ["MARKETING", "UTILITY", "AUTHENTICATION"] as const;
