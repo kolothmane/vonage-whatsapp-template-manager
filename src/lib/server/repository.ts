@@ -328,7 +328,36 @@ export async function saveWabaAssignments(wabaId: string, sourceTemplates: Templ
   return assignments;
 }
 
-export async function deleteTemplate(id: string) {
+type LogActor = { name?: string | null; email?: string | null };
+
+async function appendTemplateLogs(
+  templates: TemplateRecord[],
+  status: LogRecord["status"],
+  message: string,
+  actor?: LogActor,
+) {
+  if (!hasKvConfig() || hasDatabaseUrl() || !templates.length) return;
+  const keys = await kvKeys();
+  const logs = await readKvCollection<LogRecord>(keys.logs);
+  const now = new Date().toISOString();
+  const entries: LogRecord[] = templates.map((template) => ({
+    id: crypto.randomUUID(),
+    importId: "",
+    wabaId: template.wabaId ?? "",
+    wabaName: template.wabaName ?? "Template Catalog",
+    templateName: template.generatedName,
+    brand: template.brand,
+    language: template.language,
+    status,
+    message,
+    timestamp: now,
+    actorName: actor?.name ?? undefined,
+    actorEmail: actor?.email ?? undefined,
+  }));
+  await getKv().set(keys.logs, [...entries, ...logs].slice(0, 500));
+}
+
+export async function deleteTemplate(id: string, actor?: LogActor) {
   if (hasDatabaseUrl()) {
     await getPrisma().template.delete({ where: { id } });
     return;
@@ -340,13 +369,15 @@ export async function deleteTemplate(id: string) {
 
   const key = (await kvKeys()).templates;
   const templates = await readKvCollection<TemplateRecord>(key);
+  const deleted = templates.find((template) => template.id === id);
   await getKv().set(
     key,
     templates.filter((template) => template.id !== id),
   );
+  if (deleted) await appendTemplateLogs([deleted], "Skipped", "Template deleted from the catalog.", actor);
 }
 
-export async function deleteTemplates(ids: string[]) {
+export async function deleteTemplates(ids: string[], actor?: LogActor) {
   if (!hasKvConfig() || hasDatabaseUrl()) {
     throw new Error("Bulk template deletion currently requires the configured Upstash KV backend.");
   }
@@ -354,12 +385,14 @@ export async function deleteTemplates(ids: string[]) {
   const key = (await kvKeys()).templates;
   const templates = await readKvCollection<TemplateRecord>(key);
   const idSet = new Set(ids);
+  const deletedTemplates = templates.filter((template) => idSet.has(template.id));
   const remaining = templates.filter((template) => !idSet.has(template.id));
   await getKv().set(key, remaining);
+  await appendTemplateLogs(deletedTemplates, "Skipped", "Template deleted from the catalog.", actor);
   return templates.length - remaining.length;
 }
 
-export async function updateTemplate(id: string, changes: Partial<TemplateRecord>) {
+export async function updateTemplate(id: string, changes: Partial<TemplateRecord>, actor?: LogActor) {
   if (!hasKvConfig() || hasDatabaseUrl()) {
     throw new Error("Template editing currently requires the configured Upstash KV backend.");
   }
@@ -379,5 +412,10 @@ export async function updateTemplate(id: string, changes: Partial<TemplateRecord
   };
   templates[index] = updated;
   await getKv().set(key, templates);
+  await appendTemplateLogs([updated], updated.status, "Template updated in the catalog.", actor);
   return updated;
+}
+
+export async function logWabaSubmissions(templates: TemplateRecord[], actor?: LogActor) {
+  await appendTemplateLogs(templates, "Submitted", "Template submitted to Vonage.", actor);
 }

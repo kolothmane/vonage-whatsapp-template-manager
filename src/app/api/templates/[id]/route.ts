@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { auth } from "@/auth";
 import { generateTemplateName } from "@/lib/domain/template-name";
 import { normalizeVariables } from "@/lib/domain/variables";
 import {
@@ -14,9 +15,10 @@ import { deleteTemplate, updateTemplate } from "@/lib/server/repository";
 
 export async function DELETE(_request: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params;
+  const session = await auth();
 
   try {
-    await deleteTemplate(id);
+    await deleteTemplate(id, { name: session?.user?.name, email: session?.user?.email });
     return NextResponse.json({ data: { id }, message: "Template deleted." });
   } catch (error) {
     return NextResponse.json(
@@ -31,6 +33,7 @@ export async function DELETE(_request: Request, context: { params: Promise<{ id:
 
 export async function PATCH(request: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params;
+  const session = await auth();
   const body = (await request.json().catch(() => ({}))) as {
     brand?: string;
     language?: string;
@@ -74,7 +77,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     category: category as TemplateCategory,
     automation: body.automation?.trim() || "Manual",
     variableMappings: variables.mappings,
-  });
+  }, { name: session?.user?.name, email: session?.user?.email });
   if (!updated) {
     return NextResponse.json({ error: "NOT_FOUND", message: "Template not found." }, { status: 404 });
   }

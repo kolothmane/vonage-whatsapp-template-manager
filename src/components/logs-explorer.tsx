@@ -73,7 +73,10 @@ export function LogsExplorer({ logs }: { logs: LogRecord[] }) {
                 <TableCell className="font-mono text-xs">{log.importId || "-"}</TableCell>
                 <TableCell>{log.wabaName || "-"}</TableCell>
                 <TableCell className="font-mono text-xs">{log.templateName}</TableCell>
-                <TableCell><div>{log.actorName || "System"}</div><div className="text-xs text-muted-foreground">{log.actorEmail}</div></TableCell>
+                <TableCell>
+                  <div>{log.actorName || (log.actorEmail ? "User" : "System")}</div>
+                  <div className="text-xs text-muted-foreground">{log.actorEmail || (log.actorName ? "" : "Automated action")}</div>
+                </TableCell>
                 <TableCell><StatusBadge status={log.status} /></TableCell>
                 <TableCell className="min-w-80 text-muted-foreground">{log.message}</TableCell>
               </TableRow>

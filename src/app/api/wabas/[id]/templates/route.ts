@@ -1,7 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { auth } from "@/auth";
 import { generateVonagePayload } from "@/lib/domain/payload";
 import type { NormalizedTemplate, TemplateRecord } from "@/lib/domain/types";
-import { listTemplates, saveWabaAssignments } from "@/lib/server/repository";
+import { listTemplates, logWabaSubmissions, saveWabaAssignments } from "@/lib/server/repository";
 import { createVonageTemplate } from "@/lib/server/vonage";
 
 function toNormalized(template: TemplateRecord): NormalizedTemplate {
@@ -21,6 +22,7 @@ function toNormalized(template: TemplateRecord): NormalizedTemplate {
 }
 
 export async function POST(request: NextRequest, context: { params: Promise<{ id: string }> }) {
+  const session = await auth();
   const { id: wabaId } = await context.params;
   const body = (await request.json().catch(() => ({}))) as { templateIds?: string[] };
   if (!Array.isArray(body.templateIds) || !body.templateIds.length) {
@@ -38,6 +40,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
       await createVonageTemplate(wabaId, generateVonagePayload(toNormalized(template)));
     }
     const assignments = await saveWabaAssignments(wabaId, templates);
+    await logWabaSubmissions(assignments, { name: session?.user?.name, email: session?.user?.email });
     return NextResponse.json({ data: { submitted: assignments.length } }, { status: 201 });
   } catch (error) {
     return NextResponse.json(
