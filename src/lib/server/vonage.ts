@@ -1,46 +1,161 @@
+import { importPKCS8, SignJWT } from "jose";
 import type { VonageTemplatePayload, Waba } from "@/lib/domain/types";
 
 type VonageConfig = {
-  apiKey: string;
-  apiSecret: string;
+  apiKey?: string;
+  apiSecret?: string;
+  applicationId?: string;
+  privateKey?: string;
 };
 
 function getVonageConfig(): VonageConfig {
   const apiKey = process.env.VONAGE_API_KEY;
   const apiSecret = process.env.VONAGE_API_SECRET;
-  if (!apiKey || !apiSecret) {
-    throw new Error("VONAGE_API_KEY and VONAGE_API_SECRET are required.");
+  const applicationId = process.env.VONAGE_APPLICATION_ID;
+  const privateKey = process.env.VONAGE_PRIVATE_KEY?.replace(/\\n/g, "\n");
+  const hasBasicAuth = Boolean(apiKey && apiSecret);
+  const hasApplicationAuth = Boolean(applicationId && privateKey);
+
+  if (!hasBasicAuth && !hasApplicationAuth) {
+    throw new Error(
+      "Configure VONAGE_APPLICATION_ID and VONAGE_PRIVATE_KEY, or VONAGE_API_KEY and VONAGE_API_SECRET.",
+    );
   }
 
-  return { apiKey, apiSecret };
+  return { apiKey, apiSecret, applicationId, privateKey };
 }
 
 function basicAuth(config: VonageConfig) {
-  return Buffer.from(`${config.apiKey}:${config.apiSecret}`).toString("base64");
+  return Buffer.from(`${config.apiKey!}:${config.apiSecret!}`).toString("base64");
+}
+
+function basicAuthorizationHeader(config: VonageConfig) {
+  if (!config.apiKey || !config.apiSecret) {
+    throw new Error("VONAGE_API_KEY and VONAGE_API_SECRET are required for Channel Manager.");
+  }
+
+  return `Basic ${basicAuth(config)}`;
+}
+
+async function applicationAuthorizationHeader(config: VonageConfig) {
+  if (!config.applicationId || !config.privateKey) {
+    throw new Error(
+      "VONAGE_APPLICATION_ID and VONAGE_PRIVATE_KEY are required for template management.",
+    );
+  }
+
+  const key = await importPKCS8(config.privateKey, "RS256");
+  const token = await new SignJWT({ application_id: config.applicationId })
+    .setProtectedHeader({ alg: "RS256", typ: "JWT" })
+    .setIssuedAt()
+    .setJti(crypto.randomUUID())
+    .setExpirationTime("5m")
+    .sign(key);
+  return `Bearer ${token}`;
+}
+
+type VonageWabaResponse = {
+  wabas?: Array<Record<string, unknown>>;
+  items?: Array<Record<string, unknown>>;
+  _embedded?: Record<string, unknown>;
+  page?: number;
+  page_number?: number;
+  total_pages?: number;
+};
+
+function extractWabas(data: VonageWabaResponse) {
+  if (Array.isArray(data.wabas)) {
+    return data.wabas;
+  }
+  if (Array.isArray(data.items)) {
+    return data.items;
+  }
+
+  const embedded = data._embedded;
+  if (embedded) {
+    for (const key of ["wabas", "whatsapp_business_accounts", "items"]) {
+      if (Array.isArray(embedded[key])) {
+        return embedded[key] as Array<Record<string, unknown>>;
+      }
+    }
+  }
+
+  const topLevelKeys = Object.keys(data).join(", ") || "none";
+  const embeddedKeys = embedded ? Object.keys(embedded).join(", ") || "none" : "none";
+  throw new Error(
+    `Vonage returned an unsupported WABA response shape. Top-level keys: ${topLevelKeys}. Embedded keys: ${embeddedKeys}.`,
+  );
+}
+
+async function fetchVonageWabaPage(config: VonageConfig, page: number) {
+  const url = new URL("https://api.nexmo.com/v1/channel-manager/whatsapp/wabas");
+  url.searchParams.set("page_size", "100");
+  url.searchParams.set("page", String(page));
+  const response = await fetch(url, {
+    headers: {
+      Authorization: basicAuthorizationHeader(config),
+      Accept: "application/json",
+    },
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    const body = await response.text();
+    const requestId = response.headers.get("x-request-id");
+    const details = body ? ` ${body}` : "";
+    const tracking = requestId ? ` Request ID: ${requestId}.` : "";
+    throw new Error(`Vonage WABA sync failed with ${response.status}.${tracking}${details}`);
+  }
+
+  const data = (await response.json()) as VonageWabaResponse;
+  return {
+    data,
+    wabas: extractWabas(data),
+    requestId: response.headers.get("x-request-id"),
+  };
 }
 
 export async function fetchVonageWabas(): Promise<Waba[]> {
   const config = getVonageConfig();
-  const response = await fetch("https://api.nexmo.com/v2/whatsapp-manager/wabas", {
-    headers: {
-      Authorization: `Basic ${basicAuth(config)}`,
-      "Content-Type": "application/json",
-    },
-  });
+  const firstPage = await fetchVonageWabaPage(config, 1);
+  const totalPages = Math.max(1, Number(firstPage.data.total_pages ?? 1));
+  const remainingPages = await Promise.all(
+    Array.from({ length: totalPages - 1 }, (_, index) => fetchVonageWabaPage(config, index + 2)),
+  );
+  const rawWabas = [
+    ...firstPage.wabas,
+    ...remainingPages.flatMap((result) => result.wabas),
+  ];
 
-  if (!response.ok) {
-    throw new Error(`Vonage WABA sync failed with ${response.status}.`);
+  if (rawWabas.length === 0) {
+    const credentialLabel = `Vonage account API key ending in ${config.apiKey!.slice(-4)}`;
+    const reportedTotal = Number(
+      (firstPage.data as VonageWabaResponse & { total_items?: number }).total_items ?? 0,
+    );
+    const requestId = firstPage.requestId ? ` Request ID: ${firstPage.requestId}.` : "";
+    throw new Error(
+      `Vonage authenticated the request but returned no WABAs (total_items: ${reportedTotal}) for the ${credentialLabel}.${requestId} Channel Manager lists WABAs linked to the Vonage account, not to the Application ID.`,
+    );
   }
 
-  const data = (await response.json()) as { wabas?: Array<Record<string, unknown>> };
-  return (data.wabas ?? []).map((waba) => ({
-    id: String(waba.id),
-    name: String(waba.name ?? waba.id),
-    status: "Connected",
+  return rawWabas.map((waba) => {
+    const id = waba.waba_id ?? waba.id;
+    if (!id) {
+      throw new Error(`Vonage returned a WABA without waba_id or id.`);
+    }
+
+    return {
+    id: String(id),
+    name: String(waba.name ?? waba.business_name ?? id),
+    status:
+      waba.status === "ACTIVE" || waba.account_review_status === "Approved"
+        ? "Connected"
+        : "Action Required",
     country: String(waba.country ?? "Unknown"),
-    templateCount: Number(waba.template_count ?? 0),
+    templateCount: Number(waba.template_count ?? waba.templates_count ?? 0),
     lastSyncAt: new Date().toISOString(),
-  }));
+  };
+  });
 }
 
 export async function createVonageTemplate(wabaId: string, payload: VonageTemplatePayload) {
@@ -48,10 +163,11 @@ export async function createVonageTemplate(wabaId: string, payload: VonageTempla
   const response = await fetch(`https://api.nexmo.com/v2/whatsapp-manager/wabas/${wabaId}/templates`, {
     method: "POST",
     headers: {
-      Authorization: `Basic ${basicAuth(config)}`,
+      Authorization: await applicationAuthorizationHeader(config),
       "Content-Type": "application/json",
     },
     body: JSON.stringify(payload),
+    cache: "no-store",
   });
 
   const body = await response.json().catch(() => ({}));
@@ -60,4 +176,161 @@ export async function createVonageTemplate(wabaId: string, payload: VonageTempla
   }
 
   return body;
+}
+
+type AuditCheck = {
+  ok: boolean;
+  status: number | null;
+  detail: string;
+  requestId?: string;
+};
+
+export type VonageConnectionAudit = {
+  account: AuditCheck & {
+    apiKeySuffix: string | null;
+  };
+  application: AuditCheck & {
+    applicationId: string | null;
+    belongsToAccount: boolean | null;
+  };
+  channelManagerBasic: AuditCheck & {
+    totalItems: number | null;
+  };
+  channelManagerJwt: AuditCheck & {
+    totalItems: number | null;
+  };
+  conclusion: string;
+};
+
+async function safeJson(response: Response) {
+  return (await response.json().catch(() => ({}))) as Record<string, unknown>;
+}
+
+function responseDetail(response: Response, body: Record<string, unknown>) {
+  return String(body.detail ?? body.title ?? (response.ok ? "Request succeeded." : "Request failed."));
+}
+
+async function auditChannelManager(
+  authorization: string,
+): Promise<AuditCheck & { totalItems: number | null }> {
+  const response = await fetch(
+    "https://api.nexmo.com/v1/channel-manager/whatsapp/wabas?page=1&page_size=1",
+    {
+      headers: { Authorization: authorization, Accept: "application/json" },
+      cache: "no-store",
+    },
+  );
+  const body = await safeJson(response);
+  return {
+    ok: response.ok,
+    status: response.status,
+    detail: responseDetail(response, body),
+    requestId: response.headers.get("x-request-id") ?? undefined,
+    totalItems: response.ok ? Number(body.total_items ?? 0) : null,
+  };
+}
+
+export async function auditVonageConnection(): Promise<VonageConnectionAudit> {
+  const config = getVonageConfig();
+  const apiKeySuffix = config.apiKey?.slice(-4) ?? null;
+  const applicationId = config.applicationId ?? null;
+
+  let account: VonageConnectionAudit["account"] = {
+    ok: false,
+    status: null,
+    detail: "Basic account credentials are not configured.",
+    apiKeySuffix,
+  };
+  let application: VonageConnectionAudit["application"] = {
+    ok: false,
+    status: null,
+    detail: "Application credentials are not configured.",
+    applicationId,
+    belongsToAccount: null,
+  };
+  let channelManagerBasic: VonageConnectionAudit["channelManagerBasic"] = {
+    ok: false,
+    status: null,
+    detail: "Basic account credentials are not configured.",
+    totalItems: null,
+  };
+  let channelManagerJwt: VonageConnectionAudit["channelManagerJwt"] = {
+    ok: false,
+    status: null,
+    detail: "Application credentials are not configured.",
+    totalItems: null,
+  };
+
+  if (config.apiKey && config.apiSecret) {
+    const authorization = basicAuthorizationHeader(config);
+    const balanceResponse = await fetch("https://rest.nexmo.com/account/get-balance", {
+      headers: { Authorization: authorization, Accept: "application/json" },
+      cache: "no-store",
+    });
+    const balanceBody = await safeJson(balanceResponse);
+    account = {
+      ok: balanceResponse.ok,
+      status: balanceResponse.status,
+      detail: responseDetail(balanceResponse, balanceBody),
+      requestId: balanceResponse.headers.get("x-request-id") ?? undefined,
+      apiKeySuffix,
+    };
+    channelManagerBasic = await auditChannelManager(authorization);
+
+    if (applicationId) {
+      const applicationResponse = await fetch(
+        `https://api.nexmo.com/v2/applications/${encodeURIComponent(applicationId)}`,
+        {
+          headers: { Authorization: authorization, Accept: "application/json" },
+          cache: "no-store",
+        },
+      );
+      const applicationBody = await safeJson(applicationResponse);
+      application = {
+        ok: applicationResponse.ok,
+        status: applicationResponse.status,
+        detail: responseDetail(applicationResponse, applicationBody),
+        requestId: applicationResponse.headers.get("x-request-id") ?? undefined,
+        applicationId,
+        belongsToAccount: applicationResponse.ok,
+      };
+    }
+  }
+
+  if (config.applicationId && config.privateKey) {
+    try {
+      channelManagerJwt = await auditChannelManager(
+        await applicationAuthorizationHeader(config),
+      );
+    } catch (error) {
+      channelManagerJwt = {
+        ok: false,
+        status: null,
+        detail: error instanceof Error ? error.message : "JWT generation failed.",
+        totalItems: null,
+      };
+    }
+  }
+
+  let conclusion =
+    "The Vonage connection is valid, but no WABAs are linked to this account in Channel Manager.";
+  if (!account.ok) {
+    conclusion = "The account API key/secret are invalid or unavailable.";
+  } else if (application.belongsToAccount === false) {
+    conclusion =
+      "The Application ID does not belong to the account identified by VONAGE_API_KEY.";
+  } else if ((channelManagerBasic.totalItems ?? 0) > 0) {
+    conclusion = "WABAs are linked to the account and can be synchronized with Basic Auth.";
+  } else if ((channelManagerJwt.totalItems ?? 0) > 0) {
+    conclusion =
+      "WABAs are visible through the application JWT but not through the configured account credentials.";
+  }
+
+  return {
+    account,
+    application,
+    channelManagerBasic,
+    channelManagerJwt,
+    conclusion,
+  };
 }

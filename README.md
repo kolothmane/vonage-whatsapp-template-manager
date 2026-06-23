@@ -559,3 +559,144 @@ docs/                     API, installation et schéma SQL
 ## Licence
 
 Projet interne. Ajouter une licence explicite avant toute distribution publique.
+
+## Configuration de la connexion Google
+
+L'application utilise Auth.js avec Google OAuth 2.0. Toute page ouverte sans
+session redirige vers `/login`. Les routes API retournent une erreur HTTP `401`
+si aucune session valide n'est presente.
+
+Le serveur accepte uniquement les comptes Google dont l'adresse email est
+verifiee et appartient exactement a l'un de ces domaines :
+
+```text
+baybridgedigital.com
+bayretail.io
+```
+
+Google fournit le nom, le prenom, l'email et la photo du compte. Auth.js cree
+ensuite une session JWT chiffree dans un cookie HTTP-only qui expire apres
+8 heures. La verification du domaine est realisee sur le serveur et ne peut
+pas etre contournee en modifiant les donnees dans le navigateur.
+
+### 1. Creer le client OAuth Google
+
+Dans [Google Cloud Console](https://console.cloud.google.com/apis/credentials) :
+
+1. creer ou selectionner un projet ;
+2. configurer l'ecran de consentement OAuth ;
+3. creer un identifiant **OAuth client ID** de type **Web application** ;
+4. ajouter les URI de redirection autorisees suivantes :
+
+```text
+http://localhost:3000/api/auth/callback/google
+https://vonage-whatsapp-template-manager.vercel.app/api/auth/callback/google
+```
+
+Pour un domaine personnalise, ajouter egalement :
+
+```text
+https://VOTRE-DOMAINE/api/auth/callback/google
+```
+
+Le Client ID fourni par Google devient `AUTH_GOOGLE_ID`. Le Client Secret
+devient `AUTH_GOOGLE_SECRET`.
+
+En mode Google OAuth **Testing**, seuls les comptes ajoutes comme utilisateurs
+de test peuvent se connecter. Publier l'application OAuth pour autoriser tous
+les collaborateurs eligibles, ou la declarer interne si les domaines sont
+geres par la meme organisation Google Workspace.
+
+### 2. Creer le secret Auth.js
+
+Generer un secret aleatoire fort :
+
+```bash
+npm exec auth secret
+```
+
+### 3. Configurer les variables
+
+Dans `.env.local` pour le developpement et dans **Vercel > Project Settings >
+Environment Variables** pour Production et Preview :
+
+```env
+AUTH_SECRET=
+AUTH_GOOGLE_ID=
+AUTH_GOOGLE_SECRET=
+
+VONAGE_API_KEY=
+VONAGE_API_SECRET=
+KV_REST_API_URL=
+KV_REST_API_TOKEN=
+```
+
+Les trois variables `AUTH_*` doivent etre configurees avant de deployer la
+version protegee. Relancer un deploiement Vercel apres toute modification des
+variables.
+
+### Whitelist des utilisateurs
+
+`ADMIN_EMAILS` contient uniquement les administrateurs autorises a gerer la
+whitelist depuis Settings. Plusieurs adresses sont separees par des virgules :
+
+```env
+ADMIN_EMAILS=admin1@baybridgedigital.com,admin2@bayretail.io
+```
+
+Cette variable n'est pas la whitelist des utilisateurs. La whitelist est
+stockee de facon persistante dans l'Upstash KV deja configure avec
+`KV_REST_API_URL` et `KV_REST_API_TOKEN`.
+
+Un compte Google est accepte uniquement si son email est verifie, appartient a
+`baybridgedigital.com` ou `bayretail.io`, puis satisfait une des conditions :
+
+1. l'adresse figure dans `ADMIN_EMAILS` ;
+2. l'adresse figure dans la whitelist Upstash.
+
+Seuls les administrateurs peuvent voir la section de gestion, ajouter une
+adresse ou la supprimer. Les routes API reverifient la session et
+`ADMIN_EMAILS` cote serveur et retournent HTTP `403` aux autres utilisateurs.
+
+## Authentification Vonage
+
+L'application utilise deux contextes Vonage distincts :
+
+```text
+VONAGE_API_KEY + VONAGE_API_SECRET
+  -> compte Vonage
+  -> Account API
+  -> Application API
+  -> liste des WABAs dans Channel Manager
+
+VONAGE_APPLICATION_ID + VONAGE_PRIVATE_KEY
+  -> application Vonage
+  -> JWT RS256 court
+  -> WhatsApp Template Management API
+```
+
+Une Application Vonage est un conteneur de securite et de configuration. La
+creation d'une application ou d'une nouvelle paire de cles ne rattache pas
+automatiquement les WABAs a cette application ou au compte API configure.
+
+La liste des WABAs est recuperee avec :
+
+```http
+GET https://api.nexmo.com/v1/channel-manager/whatsapp/wabas
+Authorization: Basic base64(API_KEY:API_SECRET)
+```
+
+La gestion des templates utilise :
+
+```http
+POST https://api.nexmo.com/v2/whatsapp-manager/wabas/{WABA_ID}/templates
+Authorization: Bearer APPLICATION_JWT
+```
+
+Les administrateurs peuvent lancer **Settings > Vonage connection audit**.
+Cet audit verifie sans afficher de secret :
+
+1. que les identifiants du compte sont acceptes par l'Account API ;
+2. que l'Application ID appartient au meme compte API ;
+3. combien de WABAs Channel Manager retourne avec Basic Auth ;
+4. combien de WABAs sont visibles avec le JWT d'application.

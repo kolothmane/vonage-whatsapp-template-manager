@@ -6,6 +6,7 @@ import {
   Gauge,
   FileClock,
   History,
+  LogOut,
   Menu,
   MessageSquareText,
   ScrollText,
@@ -14,6 +15,7 @@ import {
   Upload,
   X,
 } from "lucide-react";
+import { signOut } from "next-auth/react";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
 
@@ -55,9 +57,22 @@ function ProductBrand() {
   );
 }
 
-export function AppShell({ children }: { children: React.ReactNode }) {
+type AppShellProps = {
+  children: React.ReactNode;
+  user?: {
+    name?: string | null;
+    email?: string | null;
+    image?: string | null;
+  };
+};
+
+export function AppShell({ children, user }: AppShellProps) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
+
+  if (pathname === "/login") {
+    return children;
+  }
 
   return (
     <div className="min-h-screen bg-white text-black">
@@ -141,6 +156,22 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           ))}
         </div>
 
+        {user ? (
+          <div className="border-t border-[#d5d5d5] px-4 py-3">
+            <div className="min-w-0">
+              <div className="truncate text-[13px] font-medium">{user.name || "Authenticated user"}</div>
+              <div className="truncate text-[11px] text-[#666]">{user.email}</div>
+            </div>
+            <button
+              type="button"
+              onClick={() => signOut({ callbackUrl: "/login" })}
+              className="mt-3 flex h-9 w-full items-center gap-2 rounded-md border border-[#b8b8b8] bg-white px-3 text-[13px] hover:bg-[#fafafa]"
+            >
+              <LogOut className="h-4 w-4" aria-hidden="true" />
+              Sign out
+            </button>
+          </div>
+        ) : null}
       </aside>
 
       <main className="min-h-screen w-full min-w-0 overflow-x-hidden pt-16 lg:ml-[232px] lg:w-[calc(100%-232px)] lg:pt-0">

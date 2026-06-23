@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { auth } from "@/auth";
 import { AppShell } from "@/components/app-shell";
 import "./globals.css";
 
@@ -18,15 +19,17 @@ export const metadata: Metadata = {
   description: "Enterprise operations platform for WhatsApp template imports across Vonage WABAs.",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const session = await auth();
+
   return (
     <html lang="en" className={`${geistSans.variable} ${geistMono.variable}`}>
       <body className="antialiased">
-        <AppShell>{children}</AppShell>
+        <AppShell user={session?.user}>{children}</AppShell>
       </body>
     </html>
   );

@@ -1,15 +1,39 @@
-import { KeyRound } from "lucide-react";
+import { KeyRound, Stethoscope, UsersRound } from "lucide-react";
+import { auth } from "@/auth";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { WhitelistManager } from "@/components/whitelist-manager";
+import { VonageConnectionAuditPanel } from "@/components/vonage-connection-audit";
+import { isAdminEmail } from "@/lib/server/admin-access";
 import { maskSecret } from "@/lib/server/auth";
+import { listWhitelistedEmails, type WhitelistEntry } from "@/lib/server/whitelist";
 
 const environmentRows = [
+  ["AUTH_SECRET", process.env.AUTH_SECRET ? "configured" : "not configured"],
+  ["AUTH_GOOGLE_ID", process.env.AUTH_GOOGLE_ID ? "configured" : "not configured"],
+  ["AUTH_GOOGLE_SECRET", maskSecret(process.env.AUTH_GOOGLE_SECRET)],
+  ["ADMIN_EMAILS", process.env.ADMIN_EMAILS ? "configured" : "not configured"],
   ["VONAGE_API_KEY", maskSecret(process.env.VONAGE_API_KEY)],
   ["VONAGE_API_SECRET", maskSecret(process.env.VONAGE_API_SECRET)],
+  ["VONAGE_APPLICATION_ID", process.env.VONAGE_APPLICATION_ID ? "configured" : "not configured"],
+  ["VONAGE_PRIVATE_KEY", process.env.VONAGE_PRIVATE_KEY ? "configured" : "not configured"],
   ["KV_REST_API_URL", process.env.KV_REST_API_URL ? "configured" : "not configured"],
   ["KV_REST_API_TOKEN", process.env.KV_REST_API_TOKEN ? "configured" : "not configured"],
 ];
 
-export default function SettingsPage() {
+export default async function SettingsPage() {
+  const session = await auth();
+  const isAdmin = isAdminEmail(session?.user?.email);
+  let whitelist: WhitelistEntry[] = [];
+  let whitelistError = "";
+
+  if (isAdmin) {
+    try {
+      whitelist = await listWhitelistedEmails();
+    } catch (error) {
+      whitelistError = error instanceof Error ? error.message : "Unable to load whitelist.";
+    }
+  }
+
   return (
     <div className="grid gap-5">
       <section>
@@ -36,6 +60,48 @@ export default function SettingsPage() {
           </CardContent>
         </Card>
       </section>
+
+      {isAdmin ? (
+        <section className="max-w-2xl">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Stethoscope className="h-4 w-4" />
+                Vonage connection audit
+              </CardTitle>
+              <CardDescription>
+                Compare account credentials, application ownership and Channel Manager visibility.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <VonageConnectionAuditPanel />
+            </CardContent>
+          </Card>
+        </section>
+      ) : null}
+
+      {isAdmin ? (
+        <section className="max-w-2xl">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <UsersRound className="h-4 w-4" />
+                User whitelist
+              </CardTitle>
+              <CardDescription>
+                Users listed here may sign in with a verified company Google account. The list is stored in Upstash KV; admins are controlled separately by ADMIN_EMAILS.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {whitelistError ? (
+                <p role="alert" className="text-sm text-destructive">{whitelistError}</p>
+              ) : (
+                <WhitelistManager initialEntries={whitelist} />
+              )}
+            </CardContent>
+          </Card>
+        </section>
+      ) : null}
     </div>
   );
 }
