@@ -91,6 +91,8 @@ export type LogRecord = {
   status: ImportStatus;
   message: string;
   timestamp: string;
+  actorName?: string;
+  actorEmail?: string;
 };
 
 export type AuditLogRecord = {

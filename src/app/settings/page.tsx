@@ -3,19 +3,18 @@ import { auth } from "@/auth";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { WhitelistManager } from "@/components/whitelist-manager";
 import { VonageConnectionAuditPanel } from "@/components/vonage-connection-audit";
+import { EnvironmentManager } from "@/components/environment-manager";
 import { isAdminEmail } from "@/lib/server/admin-access";
 import { maskSecret } from "@/lib/server/auth";
 import { listWhitelistedEmails, type WhitelistEntry } from "@/lib/server/whitelist";
+import { listEnvironmentsForUser, type SafeEnvironment } from "@/lib/server/environments";
 
 const environmentRows = [
   ["AUTH_SECRET", process.env.AUTH_SECRET ? "configured" : "not configured"],
   ["AUTH_GOOGLE_ID", process.env.AUTH_GOOGLE_ID ? "configured" : "not configured"],
   ["AUTH_GOOGLE_SECRET", maskSecret(process.env.AUTH_GOOGLE_SECRET)],
   ["ADMIN_EMAILS", process.env.ADMIN_EMAILS ? "configured" : "not configured"],
-  ["VONAGE_API_KEY", maskSecret(process.env.VONAGE_API_KEY)],
-  ["VONAGE_API_SECRET", maskSecret(process.env.VONAGE_API_SECRET)],
-  ["VONAGE_APPLICATION_ID", process.env.VONAGE_APPLICATION_ID ? "configured" : "not configured"],
-  ["VONAGE_PRIVATE_KEY", process.env.VONAGE_PRIVATE_KEY ? "configured" : "not configured"],
+  ["CREDENTIALS_ENCRYPTION_KEY", process.env.CREDENTIALS_ENCRYPTION_KEY ? "configured" : "not configured"],
   ["KV_REST_API_URL", process.env.KV_REST_API_URL ? "configured" : "not configured"],
   ["KV_REST_API_TOKEN", process.env.KV_REST_API_TOKEN ? "configured" : "not configured"],
 ];
@@ -25,10 +24,12 @@ export default async function SettingsPage() {
   const isAdmin = isAdminEmail(session?.user?.email);
   let whitelist: WhitelistEntry[] = [];
   let whitelistError = "";
+  let environments: SafeEnvironment[] = [];
 
   if (isAdmin) {
     try {
       whitelist = await listWhitelistedEmails();
+      environments = await listEnvironmentsForUser(session!.user!.email!);
     } catch (error) {
       whitelistError = error instanceof Error ? error.message : "Unable to load whitelist.";
     }
@@ -60,6 +61,23 @@ export default async function SettingsPage() {
           </CardContent>
         </Card>
       </section>
+
+      {isAdmin ? (
+        <section className="max-w-4xl">
+          <Card>
+            <CardHeader>
+              <CardTitle>Vonage environments</CardTitle>
+              <CardDescription>Create encrypted environments and assign access to users.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <EnvironmentManager
+                initialEnvironments={environments}
+                userEmails={[...new Set([session!.user!.email!, ...whitelist.map((entry) => entry.email)])]}
+              />
+            </CardContent>
+          </Card>
+        </section>
+      ) : null}
 
       {isAdmin ? (
         <section className="max-w-2xl">

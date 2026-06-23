@@ -2,8 +2,8 @@ import { importPKCS8, SignJWT } from "jose";
 import type { VonageTemplatePayload, Waba } from "@/lib/domain/types";
 import { getKv, hasKvConfig } from "@/lib/server/kv";
 import { ensureVonageTrailingParamMarker } from "@/lib/domain/payload";
+import { environmentKey, getActiveEnvironment } from "@/lib/server/environments";
 
-const MANUAL_WABA_IDS_KEY = "waba-br:manual-waba-ids";
 
 type VonageConfig = {
   apiKey?: string;
@@ -12,21 +12,14 @@ type VonageConfig = {
   privateKey?: string;
 };
 
-function getVonageConfig(): VonageConfig {
-  const apiKey = process.env.VONAGE_API_KEY;
-  const apiSecret = process.env.VONAGE_API_SECRET;
-  const applicationId = process.env.VONAGE_APPLICATION_ID;
-  const privateKey = process.env.VONAGE_PRIVATE_KEY?.replace(/\\n/g, "\n");
-  const hasBasicAuth = Boolean(apiKey && apiSecret);
-  const hasApplicationAuth = Boolean(applicationId && privateKey);
-
-  if (!hasBasicAuth && !hasApplicationAuth) {
-    throw new Error(
-      "Configure VONAGE_APPLICATION_ID and VONAGE_PRIVATE_KEY, or VONAGE_API_KEY and VONAGE_API_SECRET.",
-    );
-  }
-
-  return { apiKey, apiSecret, applicationId, privateKey };
+async function getVonageConfig(): Promise<VonageConfig> {
+  const environment = await getActiveEnvironment();
+  return {
+    apiKey: environment.apiKey,
+    apiSecret: environment.apiSecret,
+    applicationId: environment.applicationId,
+    privateKey: environment.privateKey?.replace(/\\n/g, "\n"),
+  };
 }
 
 function basicAuth(config: VonageConfig) {
@@ -147,7 +140,9 @@ async function fetchVerifiedManualWabas(config: VonageConfig): Promise<Waba[]> {
     return [];
   }
 
-  const wabaIds = (await getKv().get<string[]>(MANUAL_WABA_IDS_KEY)) ?? [];
+  const environment = await getActiveEnvironment();
+  const wabaIds =
+    (await getKv().get<string[]>(environmentKey(environment.id, "manual-waba-ids"))) ?? [];
   if (wabaIds.length === 0) {
     return [];
   }
@@ -181,7 +176,7 @@ async function fetchVerifiedManualWabas(config: VonageConfig): Promise<Waba[]> {
 }
 
 export async function fetchVonageWabas(): Promise<Waba[]> {
-  const config = getVonageConfig();
+  const config = await getVonageConfig();
   const basicResult = await fetchAllVonageWabaPages(basicAuthorizationHeader(config));
   let selectedResult = basicResult;
   let jwtTotalItems: number | null = null;
@@ -235,7 +230,7 @@ export async function fetchVonageWabas(): Promise<Waba[]> {
 }
 
 export async function createVonageTemplate(wabaId: string, payload: VonageTemplatePayload) {
-  const config = getVonageConfig();
+  const config = await getVonageConfig();
   const response = await fetch(`https://api.nexmo.com/v2/whatsapp-manager/wabas/${wabaId}/templates`, {
     method: "POST",
     headers: {
@@ -265,7 +260,7 @@ export type VonageExistingTemplate = {
 };
 
 export async function listVonageTemplates(wabaId: string): Promise<VonageExistingTemplate[]> {
-  const config = getVonageConfig();
+  const config = await getVonageConfig();
   const authorization = await applicationAuthorizationHeader(config);
   let url: string | null =
     `https://api.nexmo.com/v2/whatsapp-manager/wabas/${encodeURIComponent(wabaId)}/templates?limit=500`;
@@ -311,7 +306,7 @@ export async function updateVonageTemplate(
   templateId: string,
   changes: { name: string; language: string; category: string; body: string; components: Array<Record<string, unknown>> },
 ) {
-  const config = getVonageConfig();
+  const config = await getVonageConfig();
   const components = changes.components.map((component) =>
     component.type === "BODY"
       ? { ...component, text: ensureVonageTrailingParamMarker(changes.body) }
@@ -393,7 +388,7 @@ async function auditChannelManager(
 }
 
 export async function auditVonageConnection(): Promise<VonageConnectionAudit> {
-  const config = getVonageConfig();
+  const config = await getVonageConfig();
   const apiKeySuffix = config.apiKey?.slice(-4) ?? null;
   const applicationId = config.applicationId ?? null;
 
