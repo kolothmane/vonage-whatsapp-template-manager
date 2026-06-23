@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useState } from "react";
-import { Archive, Check, FileKey, Pencil, Plus, UserPlus, X } from "lucide-react";
+import { Archive, Check, FileKey, ListPlus, Pencil, Plus, UserPlus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { hasAllowedCompanyDomain, normalizeEmail } from "@/lib/server/admin-access";
@@ -10,6 +10,7 @@ import type { SafeEnvironment } from "@/lib/server/environments";
 export function EnvironmentManager({ initialEnvironments, userEmails }: { initialEnvironments: SafeEnvironment[]; userEmails: string[] }) {
   const [environments, setEnvironments] = useState(initialEnvironments);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [wabaEditingId, setWabaEditingId] = useState<string | null>(null);
   const [userDrafts, setUserDrafts] = useState<Record<string, string[]>>(
     Object.fromEntries(initialEnvironments.map((environment) => [environment.id, environment.userEmails])),
   );
@@ -18,6 +19,7 @@ export function EnvironmentManager({ initialEnvironments, userEmails }: { initia
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [nameDraft, setNameDraft] = useState("");
   const [keyFileName, setKeyFileName] = useState("");
+  const [wabaDraft, setWabaDraft] = useState("");
   const [message, setMessage] = useState("");
   const [form, setForm] = useState({ name: "", apiKey: "", apiSecret: "", applicationId: "", privateKeyFile: "" });
 
@@ -106,6 +108,25 @@ export function EnvironmentManager({ initialEnvironments, userEmails }: { initia
     setMessage("Environment renamed.");
   }
 
+  async function updateWabaIds(id: string) {
+    const wabaIds = wabaDraft.split(/[\s,;]+/).map((item) => item.trim()).filter(Boolean);
+    setSavingId(id);
+    setMessage("");
+    const response = await fetch(`/api/environments/${id}/wabas`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ wabaIds }),
+    });
+    const result = await response.json();
+    setSavingId(null);
+    if (!response.ok) return setMessage(result.error ?? "Unable to update WABA IDs.");
+    setEnvironments((current) => current.map((environment) => (
+      environment.id === id ? { ...environment, manualWabaIds: result.wabaIds } : environment
+    )));
+    setWabaEditingId(null);
+    setMessage("WABA IDs updated. Run Sync WABAs to refresh their metadata.");
+  }
+
   return (
     <div className="grid gap-5">
       <form onSubmit={create} className="grid gap-3">
@@ -176,8 +197,22 @@ export function EnvironmentManager({ initialEnvironments, userEmails }: { initia
                   variant="outline"
                   size="sm"
                   onClick={() => {
+                    setWabaEditingId((current) => current === environment.id ? null : environment.id);
+                    setWabaDraft(environment.manualWabaIds.join("\n"));
+                    setEditingId(null);
+                    setMessage("");
+                  }}
+                >
+                  <ListPlus className="h-4 w-4" />
+                  Manage WABAs
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
                     setUserDrafts((current) => ({ ...current, [environment.id]: environment.userEmails }));
                     setEditingId((current) => current === environment.id ? null : environment.id);
+                    setWabaEditingId(null);
                     setNewEmail("");
                     setMessage("");
                   }}
@@ -194,6 +229,40 @@ export function EnvironmentManager({ initialEnvironments, userEmails }: { initia
                 <span key={email} className="rounded-md border bg-secondary px-2 py-1 text-xs">{email}</span>
               )) : <span className="text-sm text-muted-foreground">No editor assigned.</span>}
             </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs font-medium text-muted-foreground">WABA IDs</span>
+              {environment.manualWabaIds.length ? environment.manualWabaIds.map((wabaId) => (
+                <span key={wabaId} className="rounded-md border bg-white px-2 py-1 font-mono text-xs">{wabaId}</span>
+              )) : <span className="text-xs text-muted-foreground">None configured.</span>}
+            </div>
+
+            {wabaEditingId === environment.id ? (
+              <div className="grid gap-3 rounded-md border bg-secondary/40 p-4">
+                <div>
+                  <div className="text-sm font-medium">WABA IDs for synchronization</div>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Enter one numeric WABA ID per line. These IDs are verified against the current Vonage environment during sync.
+                  </p>
+                </div>
+                <textarea
+                  className="min-h-28 rounded-md border bg-white p-3 font-mono text-sm"
+                  value={wabaDraft}
+                  onChange={(event) => setWabaDraft(event.target.value)}
+                  placeholder={"110326855406164\n148929584978940"}
+                />
+                <div className="flex justify-end gap-2">
+                  <Button type="button" variant="ghost" onClick={() => setWabaEditingId(null)}>
+                    <X className="h-4 w-4" />
+                    Cancel
+                  </Button>
+                  <Button type="button" onClick={() => void updateWabaIds(environment.id)} disabled={savingId === environment.id}>
+                    <Check className="h-4 w-4" />
+                    {savingId === environment.id ? "Saving..." : "Save WABA IDs"}
+                  </Button>
+                </div>
+              </div>
+            ) : null}
 
             {editingId === environment.id ? (
               <div className="grid gap-4 rounded-md border bg-secondary/40 p-4">

@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { auditVonageConnection, fetchVonageWabas } from "@/lib/server/vonage";
 
+const mocks = vi.hoisted(() => ({
+  hasKvConfig: vi.fn(() => false),
+  kvGet: vi.fn(),
+}));
+
 vi.mock("jose", () => ({
   importPKCS8: vi.fn().mockResolvedValue("test-key"),
   SignJWT: class {
@@ -13,8 +18,8 @@ vi.mock("jose", () => ({
 }));
 
 vi.mock("@/lib/server/kv", () => ({
-  hasKvConfig: vi.fn(() => false),
-  getKv: vi.fn(),
+  hasKvConfig: mocks.hasKvConfig,
+  getKv: vi.fn(() => ({ get: mocks.kvGet })),
 }));
 
 vi.mock("@/lib/server/environments", () => ({
@@ -26,11 +31,14 @@ vi.mock("@/lib/server/environments", () => ({
     applicationId: process.env.VONAGE_APPLICATION_ID,
     privateKey: process.env.VONAGE_PRIVATE_KEY,
   })),
+  environmentKey: vi.fn((environmentId: string, collection: string) => `waba-br:env:${environmentId}:${collection}`),
 }));
 
 describe("fetchVonageWabas", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+    mocks.hasKvConfig.mockReturnValue(false);
+    mocks.kvGet.mockReset();
     delete process.env.VONAGE_APPLICATION_ID;
     delete process.env.VONAGE_PRIVATE_KEY;
   });
@@ -198,6 +206,61 @@ describe("fetchVonageWabas", () => {
     await expect(fetchVonageWabas()).rejects.toThrow(
       "Basic total_items: 0. JWT total_items: 0.",
     );
+  });
+
+  it("recovers manually registered WABAs from numbers when the parent index is inconsistent", async () => {
+    mocks.hasKvConfig.mockReturnValue(true);
+    mocks.kvGet.mockResolvedValue(["110326855406164"]);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: URL | RequestInfo) => {
+        const url = String(input);
+        if (url.includes("/templates")) {
+          return new Response(
+            JSON.stringify({ templates: Array.from({ length: 45 }, (_, index) => ({ id: index })) }),
+            { status: 200 },
+          );
+        }
+        if (url.includes("/110326855406164/numbers")) {
+          return new Response(
+            JSON.stringify({
+              total_items: 3,
+              _embedded: {
+                numbers: [
+                  { waba_id: "110326855406164", api_key: "account-key-7877", verified_name: "Bayretail Lab UAT" },
+                  { waba_id: "110326855406164", api_key: "account-key-7877", verified_name: "Bayretail Lab Test" },
+                  { waba_id: "110326855406164", api_key: "account-key-7877", verified_name: "Bayretail Lab Test 2" },
+                ],
+              },
+            }),
+            { status: 200 },
+          );
+        }
+        if (url.endsWith("/110326855406164")) {
+          return new Response(JSON.stringify({ detail: "Waba was not found" }), { status: 404 });
+        }
+        return new Response(
+          JSON.stringify({ total_items: 0, total_pages: 1, _embedded: { wabas: [] } }),
+          { status: 200 },
+        );
+      }),
+    );
+
+    process.env.VONAGE_API_KEY = "account-key-7877";
+    process.env.VONAGE_API_SECRET = "secret";
+    process.env.VONAGE_APPLICATION_ID = "application-id";
+    process.env.VONAGE_PRIVATE_KEY = "private-key";
+
+    await expect(fetchVonageWabas()).resolves.toEqual([
+      {
+        id: "110326855406164",
+        name: "Bayretail Lab",
+        status: "Connected",
+        country: "Unknown",
+        templateCount: 45,
+        lastSyncAt: expect.any(String),
+      },
+    ]);
   });
 
   it("audits account authentication separately from application authentication", async () => {

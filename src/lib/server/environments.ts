@@ -22,6 +22,7 @@ export type EnvironmentRecord = {
 
 export type SafeEnvironment = Omit<EnvironmentRecord, "apiKey" | "apiSecret" | "applicationId" | "privateKey"> & {
   credentialsConfigured: true;
+  manualWabaIds: string[];
 };
 
 async function allEnvironments() {
@@ -31,9 +32,9 @@ async function allEnvironments() {
 export async function listEnvironmentsForUser(email: string) {
   const normalized = normalizeEmail(email);
   const admin = isAdminEmail(normalized);
-  return (await allEnvironments())
-    .filter((environment) => !environment.archivedAt && (admin || environment.userEmails.includes(normalized)))
-    .map((environment) => ({
+  const environments = (await allEnvironments())
+    .filter((environment) => !environment.archivedAt && (admin || environment.userEmails.includes(normalized)));
+  return Promise.all(environments.map(async (environment) => ({
       id: environment.id,
       name: environment.name,
       userEmails: environment.userEmails,
@@ -41,7 +42,9 @@ export async function listEnvironmentsForUser(email: string) {
       createdAt: environment.createdAt,
       createdBy: environment.createdBy,
       credentialsConfigured: true as const,
-    }));
+      manualWabaIds:
+        (await getKv().get<string[]>(environmentKey(environment.id, "manual-waba-ids"))) ?? [],
+    })));
 }
 
 export async function createEnvironment(input: {
@@ -85,6 +88,17 @@ export async function renameEnvironment(id: string, name: string) {
   if (!environment) throw new Error("Environment not found.");
   environment.name = name.trim();
   await getKv().set(ENVIRONMENTS_KEY, environments);
+}
+
+export async function setEnvironmentWabaIds(id: string, wabaIds: string[]) {
+  const environment = (await allEnvironments()).find((item) => item.id === id && !item.archivedAt);
+  if (!environment) throw new Error("Environment not found.");
+  const normalized = [...new Set(wabaIds.map((item) => item.trim()).filter(Boolean))];
+  if (normalized.some((item) => !/^\d{5,30}$/.test(item))) {
+    throw new Error("WABA IDs must contain digits only.");
+  }
+  await getKv().set(environmentKey(id, "manual-waba-ids"), normalized);
+  return normalized;
 }
 
 export async function getActiveEnvironment() {

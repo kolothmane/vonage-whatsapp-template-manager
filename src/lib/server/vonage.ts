@@ -135,6 +135,91 @@ async function fetchAllVonageWabaPages(authorization: string) {
   };
 }
 
+type VonageWabaNumber = {
+  waba_id?: string;
+  api_key?: string;
+  verified_name?: string;
+};
+
+function extractWabaNumbers(data: Record<string, unknown>) {
+  const embedded = data._embedded as Record<string, unknown> | undefined;
+  for (const key of ["numbers", "wabas", "items"]) {
+    if (Array.isArray(embedded?.[key])) {
+      return embedded[key] as VonageWabaNumber[];
+    }
+  }
+  return [];
+}
+
+async function fetchWabaNumbers(wabaId: string, authorizations: string[]) {
+  for (const authorization of authorizations) {
+    const response = await fetch(
+      `https://api.nexmo.com/v1/channel-manager/whatsapp/wabas/${encodeURIComponent(wabaId)}/numbers?page=1&page_size=100`,
+      {
+        headers: { Authorization: authorization, Accept: "application/json" },
+        cache: "no-store",
+      },
+    );
+    if (response.ok) {
+      return extractWabaNumbers(await response.json() as Record<string, unknown>);
+    }
+  }
+  return [];
+}
+
+async function fetchManualWabaDetails(wabaId: string, authorizations: string[]) {
+  for (const authorization of authorizations) {
+    const response = await fetch(
+      `https://api.nexmo.com/v1/channel-manager/whatsapp/wabas/${encodeURIComponent(wabaId)}`,
+      {
+        headers: { Authorization: authorization, Accept: "application/json" },
+        cache: "no-store",
+      },
+    );
+    if (response.ok) {
+      return await response.json() as Record<string, unknown>;
+    }
+  }
+  return null;
+}
+
+async function fetchTemplateCount(wabaId: string, authorizations: string[]) {
+  for (const authorization of authorizations) {
+    let url: string | null =
+      `https://api.nexmo.com/v2/whatsapp-manager/wabas/${encodeURIComponent(wabaId)}/templates?limit=500`;
+    let count = 0;
+    let succeeded = false;
+    while (url) {
+      const response = await fetch(url, {
+        headers: { Authorization: authorization, Accept: "application/json" },
+        cache: "no-store",
+      });
+      if (!response.ok) break;
+      succeeded = true;
+      const data = await response.json() as {
+        templates?: unknown[];
+        paging?: { next?: string };
+      };
+      count += data.templates?.length ?? 0;
+      url = data.paging?.next ?? null;
+    }
+    if (succeeded) return count;
+  }
+  return null;
+}
+
+function deriveWabaName(verifiedNames: string[], wabaId: string) {
+  const uniqueNames = [...new Set(verifiedNames.map((name) => name.trim()).filter(Boolean))];
+  if (uniqueNames.length <= 1) return uniqueNames[0] ?? `WABA ${wabaId}`;
+  const tokenized = uniqueNames.map((name) => name.split(/\s+/).filter((token) => token !== "-"));
+  const commonTokens: string[] = [];
+  for (const [index, token] of tokenized[0].entries()) {
+    if (!tokenized.every((tokens) => tokens[index]?.toLowerCase() === token.toLowerCase())) break;
+    commonTokens.push(token);
+  }
+  return commonTokens.length >= 2 ? commonTokens.join(" ") : uniqueNames[0];
+}
+
 async function fetchVerifiedManualWabas(config: VonageConfig): Promise<Waba[]> {
   if (!hasKvConfig()) {
     return [];
@@ -148,47 +233,50 @@ async function fetchVerifiedManualWabas(config: VonageConfig): Promise<Waba[]> {
   }
 
   const jwtAuthorization = await applicationAuthorizationHeader(config);
-  const authorizations = [basicAuthorizationHeader(config), jwtAuthorization];
+  const basicAuthorization = basicAuthorizationHeader(config);
+  const channelAuthorizations = [basicAuthorization, jwtAuthorization];
+  const templateAuthorizations = [jwtAuthorization, basicAuthorization];
   const verified: Array<Waba | null> = await Promise.all(
     wabaIds.map(async (wabaId) => {
-      const templatesResponse = await fetch(
-        `https://api.nexmo.com/v2/whatsapp-manager/wabas/${encodeURIComponent(wabaId)}/templates?limit=1`,
-        {
-          headers: { Authorization: jwtAuthorization, Accept: "application/json" },
-          cache: "no-store",
-        },
-      );
-      if (!templatesResponse.ok) {
+      const [details, numbers, templateCount] = await Promise.all([
+        fetchManualWabaDetails(wabaId, channelAuthorizations),
+        fetchWabaNumbers(wabaId, channelAuthorizations),
+        fetchTemplateCount(wabaId, templateAuthorizations),
+      ]);
+      if (!details && numbers.length === 0 && templateCount === null) {
         return null;
       }
-
-      let details: Record<string, unknown> = {};
-      for (const authorization of authorizations) {
-        const detailsResponse = await fetch(
-          `https://api.nexmo.com/v1/channel-manager/whatsapp/wabas/${encodeURIComponent(wabaId)}`,
-          {
-            headers: { Authorization: authorization, Accept: "application/json" },
-            cache: "no-store",
-          },
-        );
-        if (detailsResponse.ok) {
-          details = await detailsResponse.json() as Record<string, unknown>;
-          break;
-        }
+      const matchingNumbers = numbers.filter((number) =>
+        String(number.waba_id ?? wabaId) === wabaId &&
+        (!number.api_key || number.api_key === config.apiKey),
+      );
+      if (numbers.length > 0 && matchingNumbers.length === 0) {
+        return null;
       }
-
       return {
         id: wabaId,
-        name: String(details.name ?? details.business_name ?? `WABA ${wabaId}`),
+        name: String(
+          details?.name ??
+          details?.business_name ??
+          deriveWabaName(
+            matchingNumbers.map((number) => String(number.verified_name ?? "")),
+            wabaId,
+          )
+        ),
         status:
-          Object.keys(details).length === 0 ||
+          !details ||
           details.status === "ACTIVE" ||
           details.status === "CONNECTED" ||
           details.account_review_status === "Approved"
             ? "Connected" as const
             : "Action Required" as const,
-        country: String(details.country ?? "Unknown"),
-        templateCount: Number(details.template_count ?? details.templates_count ?? 0),
+        country: String(details?.country ?? "Unknown"),
+        templateCount: Number(
+          details?.template_count ??
+          details?.templates_count ??
+          templateCount ??
+          0
+        ),
         lastSyncAt: new Date().toISOString(),
       };
     }),
