@@ -87,13 +87,13 @@ function extractWabas(data: VonageWabaResponse) {
   );
 }
 
-async function fetchVonageWabaPage(config: VonageConfig, page: number) {
+async function fetchVonageWabaPage(authorization: string, page: number) {
   const url = new URL("https://api.nexmo.com/v1/channel-manager/whatsapp/wabas");
   url.searchParams.set("page_size", "100");
   url.searchParams.set("page", String(page));
   const response = await fetch(url, {
     headers: {
-      Authorization: basicAuthorizationHeader(config),
+      Authorization: authorization,
       Accept: "application/json",
     },
     cache: "no-store",
@@ -115,30 +115,57 @@ async function fetchVonageWabaPage(config: VonageConfig, page: number) {
   };
 }
 
-export async function fetchVonageWabas(): Promise<Waba[]> {
-  const config = getVonageConfig();
-  const firstPage = await fetchVonageWabaPage(config, 1);
+async function fetchAllVonageWabaPages(authorization: string) {
+  const firstPage = await fetchVonageWabaPage(authorization, 1);
   const totalPages = Math.max(1, Number(firstPage.data.total_pages ?? 1));
   const remainingPages = await Promise.all(
-    Array.from({ length: totalPages - 1 }, (_, index) => fetchVonageWabaPage(config, index + 2)),
+    Array.from(
+      { length: totalPages - 1 },
+      (_, index) => fetchVonageWabaPage(authorization, index + 2),
+    ),
   );
-  const rawWabas = [
-    ...firstPage.wabas,
-    ...remainingPages.flatMap((result) => result.wabas),
-  ];
 
-  if (rawWabas.length === 0) {
-    const credentialLabel = `Vonage account API key ending in ${config.apiKey!.slice(-4)}`;
-    const reportedTotal = Number(
-      (firstPage.data as VonageWabaResponse & { total_items?: number }).total_items ?? 0,
+  return {
+    firstPage,
+    rawWabas: [
+      ...firstPage.wabas,
+      ...remainingPages.flatMap((result) => result.wabas),
+    ],
+    totalItems: Number(
+      (firstPage.data as VonageWabaResponse & { total_items?: number }).total_items ??
+        firstPage.wabas.length,
+    ),
+  };
+}
+
+export async function fetchVonageWabas(): Promise<Waba[]> {
+  const config = getVonageConfig();
+  const basicResult = await fetchAllVonageWabaPages(basicAuthorizationHeader(config));
+  let selectedResult = basicResult;
+  let jwtTotalItems: number | null = null;
+
+  if (basicResult.rawWabas.length === 0 && config.applicationId && config.privateKey) {
+    const jwtResult = await fetchAllVonageWabaPages(
+      await applicationAuthorizationHeader(config),
     );
-    const requestId = firstPage.requestId ? ` Request ID: ${firstPage.requestId}.` : "";
+    jwtTotalItems = jwtResult.totalItems;
+    if (jwtResult.rawWabas.length > 0) {
+      selectedResult = jwtResult;
+    }
+  }
+
+  if (selectedResult.rawWabas.length === 0) {
+    const credentialLabel = `Vonage account API key ending in ${config.apiKey!.slice(-4)}`;
+    const requestId = basicResult.firstPage.requestId
+      ? ` Request ID: ${basicResult.firstPage.requestId}.`
+      : "";
+    const jwtTotal = jwtTotalItems === null ? "not attempted" : String(jwtTotalItems);
     throw new Error(
-      `Vonage authenticated the request but returned no WABAs (total_items: ${reportedTotal}) for the ${credentialLabel}.${requestId} Channel Manager lists WABAs linked to the Vonage account, not to the Application ID.`,
+      `Vonage authenticated the request but returned no WABAs for the ${credentialLabel}. Basic total_items: ${basicResult.totalItems}. JWT total_items: ${jwtTotal}.${requestId}`,
     );
   }
 
-  return rawWabas.map((waba) => {
+  return selectedResult.rawWabas.map((waba) => {
     const id = waba.waba_id ?? waba.id;
     if (!id) {
       throw new Error(`Vonage returned a WABA without waba_id or id.`);
