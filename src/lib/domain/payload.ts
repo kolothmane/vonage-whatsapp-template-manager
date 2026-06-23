@@ -15,6 +15,34 @@ export function ensureVonageTrailingParamMarker(body: string) {
     : body;
 }
 
+export function generateVariableExample(
+  mapping: NormalizedTemplate["variableMappings"][number],
+  brand: NormalizedTemplate["brand"],
+) {
+  switch (mapping.key.toUpperCase()) {
+    case "FIRST_NAME":
+    case "CUSTOMER_FIRST_NAME":
+    case "CUSTOMER_NAME":
+      return "Mia";
+    case "SENDER_FIRST_NAME":
+    case "ADVISOR_NAME":
+    case "STAFF_NAME":
+    case "USER_FIRST_NAME":
+      return "Ana";
+    case "STORE_NAME":
+    case "ACCOUNT_NAME":
+      return brand;
+    default:
+      return mapping.source
+        .replace(/^\[|\]$/g, "")
+        .replace(/^\{\{\{|\}\}\}$/g, "")
+        .replace(/^\{!|\}$/g, "")
+        .replace(/[._]+/g, " ")
+        .trim()
+        .replace(/\b\w/g, (char) => char.toUpperCase());
+  }
+}
+
 export function generateVonagePayload(template: NormalizedTemplate): VonageTemplatePayload {
   return {
     name: template.generatedName,
@@ -28,10 +56,7 @@ export function generateVonagePayload(template: NormalizedTemplate): VonageTempl
           ? {
               body_text: [
                 template.variableMappings.map((mapping) =>
-                  mapping.key
-                    .replace(/_/g, " ")
-                    .toLowerCase()
-                    .replace(/^\w/, (char) => char.toUpperCase()),
+                  generateVariableExample(mapping, template.brand),
                 ),
               ],
             }

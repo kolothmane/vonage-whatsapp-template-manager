@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { ensureVonageTrailingParamMarker, generateVonagePayload } from "@/lib/domain/payload";
+import {
+  ensureVonageTrailingParamMarker,
+  generateVariableExample,
+  generateVonagePayload,
+} from "@/lib/domain/payload";
 import type { NormalizedTemplate } from "@/lib/domain/types";
 
 describe("Vonage payload", () => {
@@ -47,5 +51,50 @@ describe("Vonage payload", () => {
     const payload = generateVonagePayload(template);
     expect(payload.components[0].text).toBe("Thank you {{1}}\u200E");
     expect(template.normalizedBody).toBe("Thank you {{1}}");
+  });
+
+  it("uses realistic examples for names and the template brand for store name", () => {
+    expect(
+      generateVariableExample(
+        { placeholder: "{{1}}", key: "FIRST_NAME", source: "First Name" },
+        "AB",
+      ),
+    ).toBe("Mia");
+    expect(
+      generateVariableExample(
+        { placeholder: "{{2}}", key: "SENDER_FIRST_NAME", source: "Sender First Name" },
+        "AB",
+      ),
+    ).toBe("Ana");
+    expect(
+      generateVariableExample(
+        { placeholder: "{{3}}", key: "STORE_NAME", source: "Store Name" },
+        "AB",
+      ),
+    ).toBe("AB");
+  });
+
+  it("writes the examples in placeholder order in the Vonage payload", () => {
+    const template: NormalizedTemplate = {
+      rowNumber: 1,
+      brand: "CH",
+      language: "EN",
+      whatsappLanguage: "en",
+      originalName: "Store follow up",
+      generatedName: "store_follow_up_en",
+      body: "Dear {{1}}, contact {{2}} at {{3}}.",
+      normalizedBody: "Dear {{1}}, contact {{2}} at {{3}}.",
+      category: "MARKETING",
+      automation: "Manual",
+      variableMappings: [
+        { placeholder: "{{1}}", key: "FIRST_NAME", source: "First Name" },
+        { placeholder: "{{2}}", key: "SENDER_FIRST_NAME", source: "Sender First Name" },
+        { placeholder: "{{3}}", key: "STORE_NAME", source: "Store Name" },
+      ],
+    };
+
+    expect(generateVonagePayload(template).components[0].example?.body_text).toEqual([
+      ["Mia", "Ana", "CH"],
+    ]);
   });
 });
