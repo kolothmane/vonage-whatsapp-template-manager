@@ -1,9 +1,27 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { auditVonageConnection, fetchVonageWabas } from "@/lib/server/vonage";
 
+vi.mock("jose", () => ({
+  importPKCS8: vi.fn().mockResolvedValue("test-key"),
+  SignJWT: class {
+    setProtectedHeader() { return this; }
+    setIssuedAt() { return this; }
+    setJti() { return this; }
+    setExpirationTime() { return this; }
+    sign() { return Promise.resolve("test-jwt"); }
+  },
+}));
+
+vi.mock("@/lib/server/kv", () => ({
+  hasKvConfig: vi.fn(() => false),
+  getKv: vi.fn(),
+}));
+
 describe("fetchVonageWabas", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+    delete process.env.VONAGE_APPLICATION_ID;
+    delete process.env.VONAGE_PRIVATE_KEY;
   });
 
   it("uses the Channel Manager response shape", async () => {
@@ -90,7 +108,84 @@ describe("fetchVonageWabas", () => {
     process.env.VONAGE_API_SECRET = "secret";
 
     await expect(fetchVonageWabas()).rejects.toThrow(
-      "API key ending in 9876. Request ID: request-123",
+      "Basic total_items: 0. JWT total_items: not attempted. Request ID: request-123",
+    );
+  });
+
+  it("retries with JWT when Basic Auth returns zero WABAs", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            total_items: 0,
+            total_pages: 1,
+            _embedded: { wabas: [] },
+          }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            total_items: 1,
+            total_pages: 1,
+            _embedded: {
+              wabas: [{ waba_id: "jwt-waba", name: "JWT WABA", status: "ACTIVE" }],
+            },
+          }),
+          { status: 200 },
+        ),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    process.env.VONAGE_API_KEY = "key";
+    process.env.VONAGE_API_SECRET = "secret";
+    process.env.VONAGE_APPLICATION_ID = "application-id";
+    process.env.VONAGE_PRIVATE_KEY = "private-key";
+
+    await expect(fetchVonageWabas()).resolves.toEqual([
+      expect.objectContaining({ id: "jwt-waba", name: "JWT WABA" }),
+    ]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[0][1].headers.Authorization).toMatch(/^Basic /);
+    expect(fetchMock.mock.calls[1][1].headers.Authorization).toBe("Bearer test-jwt");
+  });
+
+  it("reports Basic and JWT totals when both return zero WABAs", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              total_items: 0,
+              total_pages: 1,
+              _embedded: { wabas: [] },
+            }),
+            { status: 200 },
+          ),
+        )
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              total_items: 0,
+              total_pages: 1,
+              _embedded: { wabas: [] },
+            }),
+            { status: 200 },
+          ),
+        ),
+    );
+
+    process.env.VONAGE_API_KEY = "key";
+    process.env.VONAGE_API_SECRET = "secret";
+    process.env.VONAGE_APPLICATION_ID = "application-id";
+    process.env.VONAGE_PRIVATE_KEY = "private-key";
+
+    await expect(fetchVonageWabas()).rejects.toThrow(
+      "Basic total_items: 0. JWT total_items: 0.",
     );
   });
 
