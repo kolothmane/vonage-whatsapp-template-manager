@@ -21,6 +21,17 @@ async function kvKeys() {
   };
 }
 
+async function kvKeysForRead() {
+  try {
+    return await kvKeys();
+  } catch (error) {
+    if (error instanceof Error && error.message === "No Vonage environment is assigned to this user.") {
+      return null;
+    }
+    throw error;
+  }
+}
+
 async function readKvCollection<T>(key: string): Promise<T[]> {
   if (!hasKvConfig()) {
     return [];
@@ -43,7 +54,9 @@ function prismaWabaStatus(status: string): Waba["status"] {
 
 export async function listWabas(): Promise<Waba[]> {
   if (!hasDatabaseUrl()) {
-    const wabas = await readKvCollection<Waba>((await kvKeys()).wabas);
+    const keys = await kvKeysForRead();
+    if (!keys) return [];
+    const wabas = await readKvCollection<Waba>(keys.wabas);
     return wabas.sort((a, b) => a.name.localeCompare(b.name));
   }
 
@@ -61,7 +74,9 @@ export async function listWabas(): Promise<Waba[]> {
 
 export async function listTemplates(): Promise<TemplateRecord[]> {
   if (!hasDatabaseUrl()) {
-    const templates = await readKvCollection<TemplateRecord>((await kvKeys()).templates);
+    const keys = await kvKeysForRead();
+    if (!keys) return [];
+    const templates = await readKvCollection<TemplateRecord>(keys.templates);
     return templates.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   }
 
@@ -96,7 +111,9 @@ export async function listTemplates(): Promise<TemplateRecord[]> {
 
 export async function listImports(): Promise<ImportRecord[]> {
   if (!hasDatabaseUrl()) {
-    const imports = await readKvCollection<ImportRecord>((await kvKeys()).imports);
+    const keys = await kvKeysForRead();
+    if (!keys) return [];
+    const imports = await readKvCollection<ImportRecord>(keys.imports);
     return imports.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
 
@@ -124,7 +141,9 @@ export async function getImportById(id: string) {
 
 export async function listLogs(): Promise<LogRecord[]> {
   if (!hasDatabaseUrl()) {
-    const logs = await readKvCollection<LogRecord>((await kvKeys()).logs);
+    const keys = await kvKeysForRead();
+    if (!keys) return [];
+    const logs = await readKvCollection<LogRecord>(keys.logs);
     return logs.sort((a, b) => b.timestamp.localeCompare(a.timestamp)).slice(0, 500);
   }
 
@@ -151,7 +170,9 @@ export async function listLogs(): Promise<LogRecord[]> {
 
 export async function listAuditLogs(): Promise<AuditLogRecord[]> {
   if (!hasDatabaseUrl()) {
-    const logs = await readKvCollection<AuditLogRecord>((await kvKeys()).auditLogs);
+    const keys = await kvKeysForRead();
+    if (!keys) return [];
+    const logs = await readKvCollection<AuditLogRecord>(keys.auditLogs);
     return logs.sort((a, b) => b.date.localeCompare(a.date)).slice(0, 500);
   }
 
