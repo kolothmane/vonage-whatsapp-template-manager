@@ -114,7 +114,7 @@ export default async function SettingsPage() {
               {whitelistError ? (
                 <p role="alert" className="text-sm text-destructive">{whitelistError}</p>
               ) : (
-                <WhitelistManager initialEntries={whitelist} />
+                <WhitelistManager initialEntries={whitelist} environments={environments} />
               )}
             </CardContent>
           </Card>
