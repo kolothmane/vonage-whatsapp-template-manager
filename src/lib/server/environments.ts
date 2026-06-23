@@ -79,6 +79,14 @@ export async function archiveEnvironment(id: string) {
   await getKv().set(ENVIRONMENTS_KEY, environments);
 }
 
+export async function renameEnvironment(id: string, name: string) {
+  const environments = await allEnvironments();
+  const environment = environments.find((item) => item.id === id);
+  if (!environment) throw new Error("Environment not found.");
+  environment.name = name.trim();
+  await getKv().set(ENVIRONMENTS_KEY, environments);
+}
+
 export async function getActiveEnvironment() {
   const session = await auth();
   const email = session?.user?.email;

@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useState } from "react";
-import { Archive, Check, Pencil, Plus, UserPlus, X } from "lucide-react";
+import { Archive, Check, FileKey, Pencil, Plus, UserPlus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { hasAllowedCompanyDomain, normalizeEmail } from "@/lib/server/admin-access";
@@ -15,8 +15,11 @@ export function EnvironmentManager({ initialEnvironments, userEmails }: { initia
   );
   const [newEmail, setNewEmail] = useState("");
   const [savingId, setSavingId] = useState<string | null>(null);
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [nameDraft, setNameDraft] = useState("");
+  const [keyFileName, setKeyFileName] = useState("");
   const [message, setMessage] = useState("");
-  const [form, setForm] = useState({ name: "", apiKey: "", apiSecret: "", applicationId: "", privateKey: "" });
+  const [form, setForm] = useState({ name: "", apiKey: "", apiSecret: "", applicationId: "", privateKeyFile: "" });
 
   async function create(event: FormEvent) {
     event.preventDefault();
@@ -27,7 +30,8 @@ export function EnvironmentManager({ initialEnvironments, userEmails }: { initia
     const refreshed = await fetch("/api/environments").then((item) => item.json());
     setEnvironments(refreshed.environments);
     setUserDrafts(Object.fromEntries(refreshed.environments.map((environment: SafeEnvironment) => [environment.id, environment.userEmails])));
-    setForm({ name: "", apiKey: "", apiSecret: "", applicationId: "", privateKey: "" });
+    setForm({ name: "", apiKey: "", apiSecret: "", applicationId: "", privateKeyFile: "" });
+    setKeyFileName("");
     setMessage("Environment created. Credentials are encrypted and cannot be displayed again.");
   }
 
@@ -83,6 +87,25 @@ export function EnvironmentManager({ initialEnvironments, userEmails }: { initia
     }
   }
 
+  async function rename(id: string) {
+    const name = nameDraft.trim();
+    if (!name) return setMessage("Environment name is required.");
+    setSavingId(id);
+    const response = await fetch(`/api/environments/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+    const result = await response.json();
+    setSavingId(null);
+    if (!response.ok) return setMessage(result.error ?? "Unable to rename environment.");
+    setEnvironments((current) => current.map((environment) => (
+      environment.id === id ? { ...environment, name } : environment
+    )));
+    setRenamingId(null);
+    setMessage("Environment renamed.");
+  }
+
   return (
     <div className="grid gap-5">
       <form onSubmit={create} className="grid gap-3">
@@ -91,7 +114,24 @@ export function EnvironmentManager({ initialEnvironments, userEmails }: { initia
           <Input type="password" autoComplete="new-password" placeholder="API Key" value={form.apiKey} onChange={(event) => setForm({ ...form, apiKey: event.target.value })} required />
           <Input type="password" autoComplete="new-password" placeholder="API Secret" value={form.apiSecret} onChange={(event) => setForm({ ...form, apiSecret: event.target.value })} required />
           <Input type="password" autoComplete="new-password" placeholder="Application ID" value={form.applicationId} onChange={(event) => setForm({ ...form, applicationId: event.target.value })} required />
-          <textarea className="min-h-28 rounded-md border p-3 text-sm" placeholder="Private key" value={form.privateKey} onChange={(event) => setForm({ ...form, privateKey: event.target.value })} required />
+          <label className="flex min-h-28 cursor-pointer flex-col items-center justify-center gap-2 rounded-md border border-dashed bg-secondary/30 p-4 text-center">
+            <FileKey className="h-5 w-5" />
+            <span className="text-sm font-medium">{keyFileName || "Select private key file"}</span>
+            <span className="text-xs text-muted-foreground">Vonage .key or .pem file</span>
+            <input
+              className="sr-only"
+              type="file"
+              accept=".key,.pem,application/x-pem-file"
+              required
+              onChange={async (event) => {
+                const file = event.target.files?.[0];
+                if (!file) return;
+                const privateKeyFile = await file.text();
+                setKeyFileName(file.name);
+                setForm((current) => ({ ...current, privateKeyFile }));
+              }}
+            />
+          </label>
         </div>
         <Button className="w-fit" type="submit"><Plus className="h-4 w-4" /> Create environment</Button>
       </form>
@@ -102,11 +142,36 @@ export function EnvironmentManager({ initialEnvironments, userEmails }: { initia
         {environments.map((environment) => (
           <div key={environment.id} className="grid gap-4 p-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <div className="font-medium">{environment.name}</div>
+              <div className="min-w-0">
+                {renamingId === environment.id ? (
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <Input value={nameDraft} onChange={(event) => setNameDraft(event.target.value)} aria-label="Environment name" />
+                    <Button size="sm" onClick={() => void rename(environment.id)} disabled={savingId === environment.id}>
+                      <Check className="h-4 w-4" />
+                      Save
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => setRenamingId(null)}>
+                      <X className="h-4 w-4" />
+                      Cancel
+                    </Button>
+                  </div>
+                ) : <div className="font-medium">{environment.name}</div>}
                 <div className="text-xs text-muted-foreground">Credentials encrypted · created by {environment.createdBy}</div>
               </div>
               <div className="flex items-center gap-2">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => {
+                    setRenamingId(environment.id);
+                    setNameDraft(environment.name);
+                    setMessage("");
+                  }}
+                  aria-label={`Rename ${environment.name}`}
+                  title="Rename environment"
+                >
+                  <Pencil className="h-4 w-4" />
+                </Button>
                 <Button
                   variant="outline"
                   size="sm"
