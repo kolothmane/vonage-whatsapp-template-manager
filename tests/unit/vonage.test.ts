@@ -12,6 +12,11 @@ vi.mock("jose", () => ({
   },
 }));
 
+vi.mock("@/lib/server/kv", () => ({
+  hasKvConfig: vi.fn(() => false),
+  getKv: vi.fn(),
+}));
+
 describe("fetchVonageWabas", () => {
   afterEach(() => {
     vi.unstubAllGlobals();

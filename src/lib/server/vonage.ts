@@ -1,5 +1,8 @@
 import { importPKCS8, SignJWT } from "jose";
 import type { VonageTemplatePayload, Waba } from "@/lib/domain/types";
+import { getKv, hasKvConfig } from "@/lib/server/kv";
+
+const MANUAL_WABA_IDS_KEY = "waba-br:manual-waba-ids";
 
 type VonageConfig = {
   apiKey?: string;
@@ -138,6 +141,44 @@ async function fetchAllVonageWabaPages(authorization: string) {
   };
 }
 
+async function fetchVerifiedManualWabas(config: VonageConfig): Promise<Waba[]> {
+  if (!hasKvConfig()) {
+    return [];
+  }
+
+  const wabaIds = (await getKv().get<string[]>(MANUAL_WABA_IDS_KEY)) ?? [];
+  if (wabaIds.length === 0) {
+    return [];
+  }
+
+  const authorization = await applicationAuthorizationHeader(config);
+  const verified: Array<Waba | null> = await Promise.all(
+    wabaIds.map(async (wabaId) => {
+      const response = await fetch(
+        `https://api.nexmo.com/v2/whatsapp-manager/wabas/${encodeURIComponent(wabaId)}/templates?limit=1`,
+        {
+          headers: { Authorization: authorization, Accept: "application/json" },
+          cache: "no-store",
+        },
+      );
+      if (!response.ok) {
+        return null;
+      }
+
+      return {
+        id: wabaId,
+        name: `WABA ${wabaId}`,
+        status: "Connected" as const,
+        country: "Unknown",
+        templateCount: 0,
+        lastSyncAt: new Date().toISOString(),
+      };
+    }),
+  );
+
+  return verified.filter((waba): waba is Waba => Boolean(waba));
+}
+
 export async function fetchVonageWabas(): Promise<Waba[]> {
   const config = getVonageConfig();
   const basicResult = await fetchAllVonageWabaPages(basicAuthorizationHeader(config));
@@ -151,6 +192,13 @@ export async function fetchVonageWabas(): Promise<Waba[]> {
     jwtTotalItems = jwtResult.totalItems;
     if (jwtResult.rawWabas.length > 0) {
       selectedResult = jwtResult;
+    }
+  }
+
+  if (selectedResult.rawWabas.length === 0) {
+    const manualWabas = await fetchVerifiedManualWabas(config);
+    if (manualWabas.length > 0) {
+      return manualWabas;
     }
   }
 
