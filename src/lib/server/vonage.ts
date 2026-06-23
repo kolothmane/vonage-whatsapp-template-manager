@@ -1,6 +1,7 @@
 import { importPKCS8, SignJWT } from "jose";
 import type { VonageTemplatePayload, Waba } from "@/lib/domain/types";
 import { getKv, hasKvConfig } from "@/lib/server/kv";
+import { ensureVonageTrailingParamMarker } from "@/lib/domain/payload";
 
 const MANUAL_WABA_IDS_KEY = "waba-br:manual-waba-ids";
 
@@ -251,6 +252,92 @@ export async function createVonageTemplate(wabaId: string, payload: VonageTempla
   }
 
   return body;
+}
+
+export type VonageExistingTemplate = {
+  id: string;
+  name: string;
+  language: string;
+  category: string;
+  status: string;
+  body: string;
+  components: Array<Record<string, unknown>>;
+};
+
+export async function listVonageTemplates(wabaId: string): Promise<VonageExistingTemplate[]> {
+  const config = getVonageConfig();
+  const authorization = await applicationAuthorizationHeader(config);
+  let url: string | null =
+    `https://api.nexmo.com/v2/whatsapp-manager/wabas/${encodeURIComponent(wabaId)}/templates?limit=500`;
+  const templates: VonageExistingTemplate[] = [];
+
+  while (url) {
+    const response = await fetch(url, {
+      headers: { Authorization: authorization, Accept: "application/json" },
+      cache: "no-store",
+    });
+    const data = (await response.json().catch(() => ({}))) as {
+      templates?: Array<Record<string, unknown>>;
+      paging?: { next?: string };
+      detail?: string;
+    };
+    if (!response.ok) {
+      throw new Error(`Vonage template list failed with ${response.status}: ${data.detail ?? "Unknown error"}`);
+    }
+
+    for (const template of data.templates ?? []) {
+      const components = Array.isArray(template.components)
+        ? template.components as Array<Record<string, unknown>>
+        : [];
+      const bodyComponent = components.find((component) => component.type === "BODY");
+      templates.push({
+        id: String(template.id),
+        name: String(template.name ?? ""),
+        language: String(template.language ?? ""),
+        category: String(template.category ?? ""),
+        status: String(template.status ?? "UNKNOWN"),
+        body: String(bodyComponent?.text ?? ""),
+        components,
+      });
+    }
+    url = data.paging?.next ?? null;
+  }
+
+  return templates;
+}
+
+export async function updateVonageTemplate(
+  wabaId: string,
+  templateId: string,
+  changes: { name: string; language: string; category: string; body: string; components: Array<Record<string, unknown>> },
+) {
+  const config = getVonageConfig();
+  const components = changes.components.map((component) =>
+    component.type === "BODY"
+      ? { ...component, text: ensureVonageTrailingParamMarker(changes.body) }
+      : component,
+  );
+  const response = await fetch(
+    `https://api.nexmo.com/v2/whatsapp-manager/wabas/${encodeURIComponent(wabaId)}/templates/${encodeURIComponent(templateId)}`,
+    {
+      method: "PUT",
+      headers: {
+        Authorization: await applicationAuthorizationHeader(config),
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        name: changes.name,
+        language: changes.language,
+        category: changes.category,
+        components,
+      }),
+      cache: "no-store",
+    },
+  );
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error(`Vonage template update failed with ${response.status}: ${JSON.stringify(body)}`);
+  }
 }
 
 type AuditCheck = {
