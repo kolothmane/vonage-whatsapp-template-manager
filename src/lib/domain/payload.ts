@@ -1,5 +1,20 @@
 import type { NormalizedTemplate, VonageTemplatePayload } from "./types";
 
+const VONAGE_TRAILING_PARAM_MARK = "\u200E";
+const TRAILING_IGNORABLE_CHARACTERS = /[\s\u200B\u200C\u200D\u2060\uFEFF]+$/u;
+const TRAILING_PLACEHOLDER = /\{\{\d+\}\}$/u;
+
+export function ensureVonageTrailingParamMarker(body: string) {
+  if (body.endsWith(VONAGE_TRAILING_PARAM_MARK)) {
+    return body;
+  }
+
+  const meaningfulBody = body.replace(TRAILING_IGNORABLE_CHARACTERS, "");
+  return TRAILING_PLACEHOLDER.test(meaningfulBody)
+    ? `${meaningfulBody}${VONAGE_TRAILING_PARAM_MARK}`
+    : body;
+}
+
 export function generateVonagePayload(template: NormalizedTemplate): VonageTemplatePayload {
   return {
     name: template.generatedName,
@@ -8,7 +23,7 @@ export function generateVonagePayload(template: NormalizedTemplate): VonageTempl
     components: [
       {
         type: "BODY",
-        text: template.normalizedBody,
+        text: ensureVonageTrailingParamMarker(template.normalizedBody),
         example: template.variableMappings.length
           ? {
               body_text: [
