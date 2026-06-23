@@ -181,7 +181,10 @@ async function fetchVerifiedManualWabas(config: VonageConfig): Promise<Waba[]> {
         id: wabaId,
         name: String(details.name ?? details.business_name ?? `WABA ${wabaId}`),
         status:
-          details.status === "ACTIVE" || details.account_review_status === "Approved"
+          Object.keys(details).length === 0 ||
+          details.status === "ACTIVE" ||
+          details.status === "CONNECTED" ||
+          details.account_review_status === "Approved"
             ? "Connected" as const
             : "Action Required" as const,
         country: String(details.country ?? "Unknown"),
