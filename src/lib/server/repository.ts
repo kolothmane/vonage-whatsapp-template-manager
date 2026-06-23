@@ -8,14 +8,18 @@ import type {
 } from "@/lib/domain/types";
 import { getPrisma, hasDatabaseUrl } from "./db";
 import { getKv, hasKvConfig } from "./kv";
+import { environmentKey, getActiveEnvironment } from "./environments";
 
-const KV_KEYS = {
-  wabas: "waba-br:wabas",
-  templates: "waba-br:templates",
-  imports: "waba-br:imports",
-  logs: "waba-br:logs",
-  auditLogs: "waba-br:audit-logs",
-} as const;
+async function kvKeys() {
+  const environment = await getActiveEnvironment();
+  return {
+    wabas: environmentKey(environment.id, "wabas"),
+    templates: environmentKey(environment.id, "templates"),
+    imports: environmentKey(environment.id, "imports"),
+    logs: environmentKey(environment.id, "logs"),
+    auditLogs: environmentKey(environment.id, "audit-logs"),
+  };
+}
 
 async function readKvCollection<T>(key: string): Promise<T[]> {
   if (!hasKvConfig()) {
@@ -39,7 +43,7 @@ function prismaWabaStatus(status: string): Waba["status"] {
 
 export async function listWabas(): Promise<Waba[]> {
   if (!hasDatabaseUrl()) {
-    const wabas = await readKvCollection<Waba>(KV_KEYS.wabas);
+    const wabas = await readKvCollection<Waba>((await kvKeys()).wabas);
     return wabas.sort((a, b) => a.name.localeCompare(b.name));
   }
 
@@ -57,7 +61,7 @@ export async function listWabas(): Promise<Waba[]> {
 
 export async function listTemplates(): Promise<TemplateRecord[]> {
   if (!hasDatabaseUrl()) {
-    const templates = await readKvCollection<TemplateRecord>(KV_KEYS.templates);
+    const templates = await readKvCollection<TemplateRecord>((await kvKeys()).templates);
     return templates.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   }
 
@@ -92,7 +96,7 @@ export async function listTemplates(): Promise<TemplateRecord[]> {
 
 export async function listImports(): Promise<ImportRecord[]> {
   if (!hasDatabaseUrl()) {
-    const imports = await readKvCollection<ImportRecord>(KV_KEYS.imports);
+    const imports = await readKvCollection<ImportRecord>((await kvKeys()).imports);
     return imports.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
 
@@ -120,7 +124,7 @@ export async function getImportById(id: string) {
 
 export async function listLogs(): Promise<LogRecord[]> {
   if (!hasDatabaseUrl()) {
-    const logs = await readKvCollection<LogRecord>(KV_KEYS.logs);
+    const logs = await readKvCollection<LogRecord>((await kvKeys()).logs);
     return logs.sort((a, b) => b.timestamp.localeCompare(a.timestamp)).slice(0, 500);
   }
 
@@ -147,7 +151,7 @@ export async function listLogs(): Promise<LogRecord[]> {
 
 export async function listAuditLogs(): Promise<AuditLogRecord[]> {
   if (!hasDatabaseUrl()) {
-    const logs = await readKvCollection<AuditLogRecord>(KV_KEYS.auditLogs);
+    const logs = await readKvCollection<AuditLogRecord>((await kvKeys()).auditLogs);
     return logs.sort((a, b) => b.date.localeCompare(a.date)).slice(0, 500);
   }
 
@@ -193,7 +197,7 @@ export async function saveWabas(wabas: Waba[]) {
   }
 
   if (hasKvConfig()) {
-    await getKv().set(KV_KEYS.wabas, wabas);
+    await getKv().set((await kvKeys()).wabas, wabas);
   }
 }
 
@@ -219,8 +223,9 @@ export async function saveTemplate(wabaId: string, template: NormalizedTemplate)
   };
 
   if (hasKvConfig() && !hasDatabaseUrl()) {
-    const templates = await readKvCollection<TemplateRecord>(KV_KEYS.templates);
-    await getKv().set(KV_KEYS.templates, [record, ...templates]);
+    const key = (await kvKeys()).templates;
+    const templates = await readKvCollection<TemplateRecord>(key);
+    await getKv().set(key, [record, ...templates]);
   }
 
   return record;
@@ -231,6 +236,7 @@ export async function saveImportSubmission(params: {
   templates: NormalizedTemplate[];
   skippedRows: number[];
   duplicateCount: number;
+  actor?: { name?: string | null; email?: string | null };
 }) {
   if (!hasKvConfig() || hasDatabaseUrl()) {
     throw new Error("Bulk import persistence currently requires the configured Upstash KV backend.");
@@ -238,10 +244,11 @@ export async function saveImportSubmission(params: {
 
   const now = new Date().toISOString();
   const importId = crypto.randomUUID();
+  const keys = await kvKeys();
   const [existingTemplates, imports, logs] = await Promise.all([
-    readKvCollection<TemplateRecord>(KV_KEYS.templates),
-    readKvCollection<ImportRecord>(KV_KEYS.imports),
-    readKvCollection<LogRecord>(KV_KEYS.logs),
+    readKvCollection<TemplateRecord>(keys.templates),
+    readKvCollection<ImportRecord>(keys.imports),
+    readKvCollection<LogRecord>(keys.logs),
   ]);
   const records: TemplateRecord[] = params.templates.map((template) => ({
       id: crypto.randomUUID(),
@@ -282,12 +289,14 @@ export async function saveImportSubmission(params: {
     status: "Pending",
     message: "Template added to the central catalog.",
     timestamp: now,
+    actorName: params.actor?.name ?? undefined,
+    actorEmail: params.actor?.email ?? undefined,
   }));
 
   await Promise.all([
-    getKv().set(KV_KEYS.templates, [...records, ...existingTemplates]),
-    getKv().set(KV_KEYS.imports, [importRecord, ...imports]),
-    getKv().set(KV_KEYS.logs, [...newLogs, ...logs].slice(0, 500)),
+    getKv().set(keys.templates, [...records, ...existingTemplates]),
+    getKv().set(keys.imports, [importRecord, ...imports]),
+    getKv().set(keys.logs, [...newLogs, ...logs].slice(0, 500)),
   ]);
 
   return { importRecord, records };
@@ -299,9 +308,10 @@ export async function saveWabaAssignments(wabaId: string, sourceTemplates: Templ
   }
 
   const now = new Date().toISOString();
+  const keys = await kvKeys();
   const [wabas, existingTemplates] = await Promise.all([
     listWabas(),
-    readKvCollection<TemplateRecord>(KV_KEYS.templates),
+    readKvCollection<TemplateRecord>(keys.templates),
   ]);
   const wabaName = wabas.find((waba) => waba.id === wabaId)?.name ?? wabaId;
   const assignments = sourceTemplates.map((template) => ({
@@ -314,7 +324,7 @@ export async function saveWabaAssignments(wabaId: string, sourceTemplates: Templ
     updatedAt: now,
   }));
 
-  await getKv().set(KV_KEYS.templates, [...assignments, ...existingTemplates]);
+  await getKv().set(keys.templates, [...assignments, ...existingTemplates]);
   return assignments;
 }
 
@@ -328,9 +338,10 @@ export async function deleteTemplate(id: string) {
     throw new Error("No persistence backend is configured.");
   }
 
-  const templates = await readKvCollection<TemplateRecord>(KV_KEYS.templates);
+  const key = (await kvKeys()).templates;
+  const templates = await readKvCollection<TemplateRecord>(key);
   await getKv().set(
-    KV_KEYS.templates,
+    key,
     templates.filter((template) => template.id !== id),
   );
 }
@@ -340,10 +351,11 @@ export async function deleteTemplates(ids: string[]) {
     throw new Error("Bulk template deletion currently requires the configured Upstash KV backend.");
   }
 
-  const templates = await readKvCollection<TemplateRecord>(KV_KEYS.templates);
+  const key = (await kvKeys()).templates;
+  const templates = await readKvCollection<TemplateRecord>(key);
   const idSet = new Set(ids);
   const remaining = templates.filter((template) => !idSet.has(template.id));
-  await getKv().set(KV_KEYS.templates, remaining);
+  await getKv().set(key, remaining);
   return templates.length - remaining.length;
 }
 
@@ -352,7 +364,8 @@ export async function updateTemplate(id: string, changes: Partial<TemplateRecord
     throw new Error("Template editing currently requires the configured Upstash KV backend.");
   }
 
-  const templates = await readKvCollection<TemplateRecord>(KV_KEYS.templates);
+  const key = (await kvKeys()).templates;
+  const templates = await readKvCollection<TemplateRecord>(key);
   const index = templates.findIndex((template) => template.id === id);
   if (index < 0) {
     return null;
@@ -365,6 +378,6 @@ export async function updateTemplate(id: string, changes: Partial<TemplateRecord
     updatedAt: new Date().toISOString(),
   };
   templates[index] = updated;
-  await getKv().set(KV_KEYS.templates, templates);
+  await getKv().set(key, templates);
   return updated;
 }

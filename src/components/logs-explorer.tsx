@@ -21,7 +21,7 @@ export function LogsExplorer({ logs }: { logs: LogRecord[] }) {
     return logs.filter((log) => {
       const matchesQuery =
         !normalizedQuery ||
-        [log.importId, log.wabaId, log.wabaName, log.templateName, log.message]
+        [log.importId, log.wabaId, log.wabaName, log.templateName, log.message, log.actorName, log.actorEmail]
           .join(" ")
           .toLowerCase()
           .includes(normalizedQuery);
@@ -61,6 +61,7 @@ export function LogsExplorer({ logs }: { logs: LogRecord[] }) {
               <TableHead>Import</TableHead>
               <TableHead>WABA</TableHead>
               <TableHead>Template</TableHead>
+              <TableHead>User</TableHead>
               <TableHead>Status</TableHead>
               <TableHead>Message</TableHead>
             </TableRow>
@@ -72,13 +73,14 @@ export function LogsExplorer({ logs }: { logs: LogRecord[] }) {
                 <TableCell className="font-mono text-xs">{log.importId || "-"}</TableCell>
                 <TableCell>{log.wabaName || "-"}</TableCell>
                 <TableCell className="font-mono text-xs">{log.templateName}</TableCell>
+                <TableCell><div>{log.actorName || "System"}</div><div className="text-xs text-muted-foreground">{log.actorEmail}</div></TableCell>
                 <TableCell><StatusBadge status={log.status} /></TableCell>
                 <TableCell className="min-w-80 text-muted-foreground">{log.message}</TableCell>
               </TableRow>
             ))}
             {!visibleLogs.length ? (
               <TableRow>
-                <TableCell className="h-24 text-center text-muted-foreground" colSpan={6}>
+                <TableCell className="h-24 text-center text-muted-foreground" colSpan={7}>
                   No logs match the current search and filters.
                 </TableCell>
               </TableRow>

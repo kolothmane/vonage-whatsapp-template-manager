@@ -18,6 +18,8 @@ import {
 import { signOut } from "next-auth/react";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
+import { EnvironmentSwitcher } from "@/components/environment-switcher";
+import type { SafeEnvironment } from "@/lib/server/environments";
 
 const sections = [
   {
@@ -64,9 +66,10 @@ type AppShellProps = {
     email?: string | null;
     image?: string | null;
   };
+  environments: SafeEnvironment[];
 };
 
-export function AppShell({ children, user }: AppShellProps) {
+export function AppShell({ children, user, environments }: AppShellProps) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
 
@@ -114,6 +117,7 @@ export function AppShell({ children, user }: AppShellProps) {
 
         <div className="px-4 pb-3 pt-5">
           <ProductBrand />
+          <EnvironmentSwitcher environments={environments} />
 
           <div className="mt-4 text-[13px]">Import mode</div>
           <div className="mt-1 inline-flex rounded-[5px] bg-[#963cff] px-2 py-0.5 text-[12px] font-semibold text-white">

@@ -1,8 +1,10 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { getSubmittableTemplates, validateImportRows } from "@/lib/domain/validation";
 import { listTemplates, saveImportSubmission } from "@/lib/server/repository";
+import { auth } from "@/auth";
 
 export async function POST(request: NextRequest) {
+  const session = await auth();
   const body = (await request.json().catch(() => ({}))) as {
     fileName?: string;
     rows?: Record<string, unknown>[];
@@ -42,6 +44,7 @@ export async function POST(request: NextRequest) {
       templates,
       skippedRows,
       duplicateCount: report.summary.duplicates,
+      actor: { name: session?.user?.name, email: session?.user?.email },
     });
 
     return NextResponse.json(

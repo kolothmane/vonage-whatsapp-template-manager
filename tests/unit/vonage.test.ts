@@ -17,6 +17,17 @@ vi.mock("@/lib/server/kv", () => ({
   getKv: vi.fn(),
 }));
 
+vi.mock("@/lib/server/environments", () => ({
+  getActiveEnvironment: vi.fn(async () => ({
+    id: "test-environment",
+    name: "Test",
+    apiKey: process.env.VONAGE_API_KEY,
+    apiSecret: process.env.VONAGE_API_SECRET,
+    applicationId: process.env.VONAGE_APPLICATION_ID,
+    privateKey: process.env.VONAGE_PRIVATE_KEY,
+  })),
+}));
+
 describe("fetchVonageWabas", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
