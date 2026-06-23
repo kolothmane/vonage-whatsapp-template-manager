@@ -147,26 +147,45 @@ async function fetchVerifiedManualWabas(config: VonageConfig): Promise<Waba[]> {
     return [];
   }
 
-  const authorization = await applicationAuthorizationHeader(config);
+  const jwtAuthorization = await applicationAuthorizationHeader(config);
+  const authorizations = [basicAuthorizationHeader(config), jwtAuthorization];
   const verified: Array<Waba | null> = await Promise.all(
     wabaIds.map(async (wabaId) => {
-      const response = await fetch(
+      const templatesResponse = await fetch(
         `https://api.nexmo.com/v2/whatsapp-manager/wabas/${encodeURIComponent(wabaId)}/templates?limit=1`,
         {
-          headers: { Authorization: authorization, Accept: "application/json" },
+          headers: { Authorization: jwtAuthorization, Accept: "application/json" },
           cache: "no-store",
         },
       );
-      if (!response.ok) {
+      if (!templatesResponse.ok) {
         return null;
+      }
+
+      let details: Record<string, unknown> = {};
+      for (const authorization of authorizations) {
+        const detailsResponse = await fetch(
+          `https://api.nexmo.com/v1/channel-manager/whatsapp/wabas/${encodeURIComponent(wabaId)}`,
+          {
+            headers: { Authorization: authorization, Accept: "application/json" },
+            cache: "no-store",
+          },
+        );
+        if (detailsResponse.ok) {
+          details = await detailsResponse.json() as Record<string, unknown>;
+          break;
+        }
       }
 
       return {
         id: wabaId,
-        name: `WABA ${wabaId}`,
-        status: "Connected" as const,
-        country: "Unknown",
-        templateCount: 0,
+        name: String(details.name ?? details.business_name ?? `WABA ${wabaId}`),
+        status:
+          details.status === "ACTIVE" || details.account_review_status === "Approved"
+            ? "Connected" as const
+            : "Action Required" as const,
+        country: String(details.country ?? "Unknown"),
+        templateCount: Number(details.template_count ?? details.templates_count ?? 0),
         lastSyncAt: new Date().toISOString(),
       };
     }),
