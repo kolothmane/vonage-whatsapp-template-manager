@@ -232,10 +232,18 @@ async function fetchVerifiedManualWabas(config: VonageConfig): Promise<Waba[]> {
     return [];
   }
 
-  const jwtAuthorization = await applicationAuthorizationHeader(config);
   const basicAuthorization = basicAuthorizationHeader(config);
-  const channelAuthorizations = [basicAuthorization, jwtAuthorization];
-  const templateAuthorizations = [jwtAuthorization, basicAuthorization];
+  const jwtAuthorization = config.applicationId && config.privateKey
+    ? await applicationAuthorizationHeader(config)
+    : null;
+  const channelAuthorizations = [
+    basicAuthorization,
+    ...(jwtAuthorization ? [jwtAuthorization] : []),
+  ];
+  const templateAuthorizations = [
+    ...(jwtAuthorization ? [jwtAuthorization] : []),
+    basicAuthorization,
+  ];
   const verified: Array<Waba | null> = await Promise.all(
     wabaIds.map(async (wabaId) => {
       const [details, numbers, templateCount] = await Promise.all([

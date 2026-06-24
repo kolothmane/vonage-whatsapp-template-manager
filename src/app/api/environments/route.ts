@@ -15,11 +15,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Admin access required." }, { status: 403 });
   }
   const body = await request.json().catch(() => null);
-  if (!body?.name || !body?.apiKey || !body?.apiSecret || !body?.applicationId || !body?.privateKeyFile) {
-    return NextResponse.json({ error: "All Vonage credentials are required." }, { status: 400 });
+  if (!body?.name || !body?.apiKey || !body?.apiSecret) {
+    return NextResponse.json({ error: "Environment name, API key and API secret are required." }, { status: 400 });
   }
   const privateKey = String(body.privateKeyFile).replace(/\\n/g, "\n").trim();
-  if (!privateKey.includes("-----BEGIN PRIVATE KEY-----") || !privateKey.includes("-----END PRIVATE KEY-----")) {
+  if (privateKey && (!privateKey.includes("-----BEGIN PRIVATE KEY-----") || !privateKey.includes("-----END PRIVATE KEY-----"))) {
     return NextResponse.json({ error: "Select a valid Vonage .key or .pem private key file." }, { status: 400 });
   }
   const id = await createEnvironment({

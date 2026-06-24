@@ -134,16 +134,15 @@ export function EnvironmentManager({ initialEnvironments, userEmails }: { initia
         <div className="grid gap-3 sm:grid-cols-2">
           <Input type="password" autoComplete="new-password" placeholder="API Key" value={form.apiKey} onChange={(event) => setForm({ ...form, apiKey: event.target.value })} required />
           <Input type="password" autoComplete="new-password" placeholder="API Secret" value={form.apiSecret} onChange={(event) => setForm({ ...form, apiSecret: event.target.value })} required />
-          <Input type="password" autoComplete="new-password" placeholder="Application ID" value={form.applicationId} onChange={(event) => setForm({ ...form, applicationId: event.target.value })} required />
+          <Input type="password" autoComplete="new-password" placeholder="Application ID (optional)" value={form.applicationId} onChange={(event) => setForm({ ...form, applicationId: event.target.value })} />
           <label className="flex min-h-28 cursor-pointer flex-col items-center justify-center gap-2 rounded-md border border-dashed bg-secondary/30 p-4 text-center">
             <FileKey className="h-5 w-5" />
-            <span className="text-sm font-medium">{keyFileName || "Select private key file"}</span>
-            <span className="text-xs text-muted-foreground">Vonage .key or .pem file</span>
+            <span className="text-sm font-medium">{keyFileName || "Select private key file (optional)"}</span>
+            <span className="text-xs text-muted-foreground">Vonage .key or .pem file for JWT-only actions</span>
             <input
               className="sr-only"
               type="file"
               accept=".key,.pem,application/x-pem-file"
-              required
               onChange={async (event) => {
                 const file = event.target.files?.[0];
                 if (!file) return;

@@ -6,6 +6,7 @@ import { isAdminEmail, normalizeEmail } from "@/lib/server/admin-access";
 
 const ENVIRONMENTS_KEY = "waba-br:environments";
 const ACTIVE_COOKIE = "waba-br-environment";
+const PUIG_PROD_ENVIRONMENT_NAME = "PUIG Prod";
 
 export type EnvironmentRecord = {
   id: string;
@@ -25,8 +26,49 @@ export type SafeEnvironment = Omit<EnvironmentRecord, "apiKey" | "apiSecret" | "
   manualWabaIds: string[];
 };
 
+function envBackedAdmins() {
+  return [
+    ...new Set(
+      (process.env.ADMIN_EMAILS ?? "")
+        .split(",")
+        .map(normalizeEmail)
+        .filter(Boolean),
+    ),
+  ];
+}
+
+async function withEnvBackedEnvironments(environments: EnvironmentRecord[]) {
+  const puigApiKey = process.env.PUIG_API?.trim();
+  const puigApiSecret = process.env.PUIG_PRODD?.trim();
+  if (!puigApiKey || !puigApiSecret) {
+    return environments;
+  }
+
+  if (environments.some((environment) => environment.name === PUIG_PROD_ENVIRONMENT_NAME && !environment.archivedAt)) {
+    return environments;
+  }
+
+  const admins = envBackedAdmins();
+  const createdBy = admins[0] ?? "system";
+  const environment: EnvironmentRecord = {
+    id: crypto.randomUUID(),
+    name: PUIG_PROD_ENVIRONMENT_NAME,
+    apiKey: encryptSecret(puigApiKey),
+    apiSecret: encryptSecret(puigApiSecret),
+    applicationId: encryptSecret(""),
+    privateKey: encryptSecret(""),
+    userEmails: admins,
+    createdAt: new Date().toISOString(),
+    createdBy,
+  };
+  const next = [...environments, environment];
+  await getKv().set(ENVIRONMENTS_KEY, next);
+  return next;
+}
+
 async function allEnvironments() {
-  return (await getKv().get<EnvironmentRecord[]>(ENVIRONMENTS_KEY)) ?? [];
+  const environments = (await getKv().get<EnvironmentRecord[]>(ENVIRONMENTS_KEY)) ?? [];
+  return withEnvBackedEnvironments(environments);
 }
 
 export async function listEnvironmentsForUser(email: string) {
@@ -48,7 +90,7 @@ export async function listEnvironmentsForUser(email: string) {
 }
 
 export async function createEnvironment(input: {
-  name: string; apiKey: string; apiSecret: string; applicationId: string; privateKey: string; createdBy: string;
+  name: string; apiKey: string; apiSecret: string; applicationId?: string; privateKey?: string; createdBy: string;
 }) {
   const environments = await allEnvironments();
   const environment: EnvironmentRecord = {
@@ -56,8 +98,8 @@ export async function createEnvironment(input: {
     name: input.name.trim(),
     apiKey: encryptSecret(input.apiKey.trim()),
     apiSecret: encryptSecret(input.apiSecret.trim()),
-    applicationId: encryptSecret(input.applicationId.trim()),
-    privateKey: encryptSecret(input.privateKey.trim()),
+    applicationId: encryptSecret(input.applicationId?.trim() ?? ""),
+    privateKey: encryptSecret(input.privateKey?.trim() ?? ""),
     userEmails: [normalizeEmail(input.createdBy)],
     createdAt: new Date().toISOString(),
     createdBy: normalizeEmail(input.createdBy),
