@@ -44,8 +44,36 @@ async function withEnvBackedEnvironments(environments: EnvironmentRecord[]) {
     return environments;
   }
 
-  if (environments.some((environment) => environment.name === PUIG_PROD_ENVIRONMENT_NAME && !environment.archivedAt)) {
-    return environments;
+  const existing = environments.find((environment) => environment.name === PUIG_PROD_ENVIRONMENT_NAME && !environment.archivedAt);
+  if (existing) {
+    const admins = envBackedAdmins();
+    const nextUsers = [...new Set([...existing.userEmails, ...admins])];
+    const credentialsAreCurrent =
+      decryptSecret(existing.apiKey) === puigApiKey &&
+      decryptSecret(existing.apiSecret) === puigApiSecret &&
+      decryptSecret(existing.applicationId) === "" &&
+      decryptSecret(existing.privateKey) === "";
+    const usersAreCurrent =
+      nextUsers.length === existing.userEmails.length &&
+      nextUsers.every((email) => existing.userEmails.includes(email));
+    if (credentialsAreCurrent && usersAreCurrent) {
+      return environments;
+    }
+
+    const next = environments.map((environment) => (
+      environment.id === existing.id
+        ? {
+            ...environment,
+            apiKey: encryptSecret(puigApiKey),
+            apiSecret: encryptSecret(puigApiSecret),
+            applicationId: encryptSecret(""),
+            privateKey: encryptSecret(""),
+            userEmails: nextUsers,
+          }
+        : environment
+    ));
+    await getKv().set(ENVIRONMENTS_KEY, next);
+    return next;
   }
 
   const admins = envBackedAdmins();
@@ -87,6 +115,12 @@ export async function listEnvironmentsForUser(email: string) {
       manualWabaIds:
         (await getKv().get<string[]>(environmentKey(environment.id, "manual-waba-ids"))) ?? [],
     })));
+}
+
+export async function getActiveEnvironmentIdForUser(email: string) {
+  const accessible = await listEnvironmentsForUser(email);
+  const selectedId = (await cookies()).get(ACTIVE_COOKIE)?.value;
+  return accessible.find((item) => item.id === selectedId)?.id ?? accessible[0]?.id ?? "";
 }
 
 export async function createEnvironment(input: {
@@ -148,8 +182,8 @@ export async function getActiveEnvironment() {
   const email = session?.user?.email;
   if (!email) throw new Error("Authentication required.");
   const accessible = await listEnvironmentsForUser(email);
-  const selectedId = (await cookies()).get(ACTIVE_COOKIE)?.value;
-  const selected = accessible.find((item) => item.id === selectedId) ?? accessible[0];
+  const selectedId = await getActiveEnvironmentIdForUser(email);
+  const selected = accessible.find((item) => item.id === selectedId);
   if (!selected) {
     throw new Error("No Vonage environment is assigned to this user.");
   }

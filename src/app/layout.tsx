@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { auth } from "@/auth";
 import { AppShell } from "@/components/app-shell";
-import { listEnvironmentsForUser } from "@/lib/server/environments";
+import { getActiveEnvironmentIdForUser, listEnvironmentsForUser } from "@/lib/server/environments";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -27,11 +27,12 @@ export default async function RootLayout({
 }>) {
   const session = await auth();
   const environments = session?.user?.email ? await listEnvironmentsForUser(session.user.email) : [];
+  const activeEnvironmentId = session?.user?.email ? await getActiveEnvironmentIdForUser(session.user.email) : "";
 
   return (
     <html lang="en" className={`${geistSans.variable} ${geistMono.variable}`}>
       <body className="antialiased">
-        <AppShell user={session?.user} environments={environments}>{children}</AppShell>
+        <AppShell user={session?.user} environments={environments} activeEnvironmentId={activeEnvironmentId}>{children}</AppShell>
       </body>
     </html>
   );

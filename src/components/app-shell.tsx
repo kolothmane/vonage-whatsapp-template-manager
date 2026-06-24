@@ -67,9 +67,10 @@ type AppShellProps = {
     image?: string | null;
   };
   environments: SafeEnvironment[];
+  activeEnvironmentId: string;
 };
 
-export function AppShell({ children, user, environments }: AppShellProps) {
+export function AppShell({ children, user, environments, activeEnvironmentId }: AppShellProps) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
 
@@ -117,7 +118,7 @@ export function AppShell({ children, user, environments }: AppShellProps) {
 
         <div className="px-4 pb-3 pt-5">
           <ProductBrand />
-          <EnvironmentSwitcher environments={environments} />
+          <EnvironmentSwitcher environments={environments} activeId={activeEnvironmentId} />
 
           <div className="mt-4 text-[13px]">Import mode</div>
           <div className="mt-1 inline-flex rounded-[5px] bg-[#963cff] px-2 py-0.5 text-[12px] font-semibold text-white">

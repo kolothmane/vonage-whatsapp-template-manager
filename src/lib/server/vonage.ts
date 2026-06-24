@@ -10,6 +10,7 @@ type VonageConfig = {
   apiSecret?: string;
   applicationId?: string;
   privateKey?: string;
+  environmentName?: string;
 };
 
 async function getVonageConfig(): Promise<VonageConfig> {
@@ -19,6 +20,7 @@ async function getVonageConfig(): Promise<VonageConfig> {
     apiSecret: environment.apiSecret,
     applicationId: environment.applicationId,
     privateKey: environment.privateKey?.replace(/\\n/g, "\n"),
+    environmentName: environment.name,
   };
 }
 
@@ -84,7 +86,7 @@ function extractWabas(data: VonageWabaResponse) {
   );
 }
 
-async function fetchVonageWabaPage(authorization: string, page: number) {
+async function fetchVonageWabaPage(authorization: string, page: number, credentialLabel: string) {
   const url = new URL("https://api.nexmo.com/v1/channel-manager/whatsapp/wabas");
   url.searchParams.set("page_size", "100");
   url.searchParams.set("page", String(page));
@@ -101,7 +103,7 @@ async function fetchVonageWabaPage(authorization: string, page: number) {
     const requestId = response.headers.get("x-request-id");
     const details = body ? ` ${body}` : "";
     const tracking = requestId ? ` Request ID: ${requestId}.` : "";
-    throw new Error(`Vonage WABA sync failed with ${response.status}.${tracking}${details}`);
+    throw new Error(`Vonage WABA sync failed with ${response.status} for ${credentialLabel}.${tracking}${details}`);
   }
 
   const data = (await response.json()) as VonageWabaResponse;
@@ -112,13 +114,13 @@ async function fetchVonageWabaPage(authorization: string, page: number) {
   };
 }
 
-async function fetchAllVonageWabaPages(authorization: string) {
-  const firstPage = await fetchVonageWabaPage(authorization, 1);
+async function fetchAllVonageWabaPages(authorization: string, credentialLabel: string) {
+  const firstPage = await fetchVonageWabaPage(authorization, 1, credentialLabel);
   const totalPages = Math.max(1, Number(firstPage.data.total_pages ?? 1));
   const remainingPages = await Promise.all(
     Array.from(
       { length: totalPages - 1 },
-      (_, index) => fetchVonageWabaPage(authorization, index + 2),
+      (_, index) => fetchVonageWabaPage(authorization, index + 2, credentialLabel),
     ),
   );
 
@@ -295,13 +297,18 @@ async function fetchVerifiedManualWabas(config: VonageConfig): Promise<Waba[]> {
 
 export async function fetchVonageWabas(): Promise<Waba[]> {
   const config = await getVonageConfig();
-  const basicResult = await fetchAllVonageWabaPages(basicAuthorizationHeader(config));
+  const credentialLabel = `"${config.environmentName ?? "Unknown environment"}" using API key ending in ${config.apiKey?.slice(-4) ?? "n/a"}`;
+  const basicResult = await fetchAllVonageWabaPages(
+    basicAuthorizationHeader(config),
+    credentialLabel,
+  );
   let selectedResult = basicResult;
   let jwtTotalItems: number | null = null;
 
   if (basicResult.rawWabas.length === 0 && config.applicationId && config.privateKey) {
     const jwtResult = await fetchAllVonageWabaPages(
       await applicationAuthorizationHeader(config),
+      credentialLabel,
     );
     jwtTotalItems = jwtResult.totalItems;
     if (jwtResult.rawWabas.length > 0) {
@@ -317,13 +324,13 @@ export async function fetchVonageWabas(): Promise<Waba[]> {
   }
 
   if (selectedResult.rawWabas.length === 0) {
-    const credentialLabel = `Vonage account API key ending in ${config.apiKey!.slice(-4)}`;
+    const accountLabel = `Vonage account API key ending in ${config.apiKey!.slice(-4)}`;
     const requestId = basicResult.firstPage.requestId
       ? ` Request ID: ${basicResult.firstPage.requestId}.`
       : "";
     const jwtTotal = jwtTotalItems === null ? "not attempted" : String(jwtTotalItems);
     throw new Error(
-      `Vonage authenticated the request but returned no WABAs for the ${credentialLabel}. Basic total_items: ${basicResult.totalItems}. JWT total_items: ${jwtTotal}.${requestId}`,
+      `Vonage authenticated the request but returned no WABAs for the ${accountLabel}. Basic total_items: ${basicResult.totalItems}. JWT total_items: ${jwtTotal}.${requestId}`,
     );
   }
 
