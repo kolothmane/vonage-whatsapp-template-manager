@@ -468,6 +468,13 @@ type AuditCheck = {
 };
 
 export type VonageConnectionAudit = {
+  environment: {
+    name: string | null;
+    apiKeySuffix: string | null;
+    apiKeyConfigured: boolean;
+    apiSecretConfigured: boolean;
+    applicationConfigured: boolean;
+  };
   account: AuditCheck & {
     apiKeySuffix: string | null;
   };
@@ -516,6 +523,13 @@ export async function auditVonageConnection(): Promise<VonageConnectionAudit> {
   const config = await getVonageConfig();
   const apiKeySuffix = config.apiKey?.slice(-4) ?? null;
   const applicationId = config.applicationId ?? null;
+  const environment = {
+    name: config.environmentName ?? null,
+    apiKeySuffix,
+    apiKeyConfigured: Boolean(config.apiKey),
+    apiSecretConfigured: Boolean(config.apiSecret),
+    applicationConfigured: Boolean(config.applicationId && config.privateKey),
+  };
 
   let account: VonageConnectionAudit["account"] = {
     ok: false,
@@ -597,7 +611,7 @@ export async function auditVonageConnection(): Promise<VonageConnectionAudit> {
   let conclusion =
     "The Vonage connection is valid, but no WABAs are linked to this account in Channel Manager.";
   if (!account.ok) {
-    conclusion = "The account API key/secret are invalid or unavailable.";
+    conclusion = `Vonage rejected the account credentials for ${environment.name ?? "the active environment"}. Check that the API key ending in ${apiKeySuffix ?? "n/a"} and its matching API secret are from the same Vonage account.`;
   } else if (application.belongsToAccount === false) {
     conclusion =
       "The Application ID does not belong to the account identified by VONAGE_API_KEY.";
@@ -609,6 +623,7 @@ export async function auditVonageConnection(): Promise<VonageConnectionAudit> {
   }
 
   return {
+    environment,
     account,
     application,
     channelManagerBasic,

@@ -67,24 +67,29 @@ export function VonageConnectionAuditPanel() {
       {audit ? (
         <div>
           <CheckRow
+            label="Active environment"
+            check={audit.environment.apiKeyConfigured && audit.environment.apiSecretConfigured}
+            detail={`${audit.environment.name ?? "Unknown environment"} - API key ending in ${audit.environment.apiKeySuffix ?? "n/a"} - API secret ${audit.environment.apiSecretConfigured ? "configured" : "missing"} - Application JWT ${audit.environment.applicationConfigured ? "configured" : "not configured"}`}
+          />
+          <CheckRow
             label="Vonage account credentials"
             check={audit.account.ok}
-            detail={`HTTP ${audit.account.status ?? "n/a"} · API key ending in ${audit.account.apiKeySuffix ?? "n/a"}`}
+            detail={`HTTP ${audit.account.status ?? "n/a"} - ${audit.account.detail}`}
           />
           <CheckRow
             label="Application belongs to account"
             check={audit.application.belongsToAccount === true}
-            detail={`HTTP ${audit.application.status ?? "n/a"} · ${audit.application.applicationId ?? "No Application ID"}`}
+            detail={`HTTP ${audit.application.status ?? "n/a"} - ${audit.application.applicationId ?? "No Application ID"}`}
           />
           <CheckRow
             label="Channel Manager with Basic Auth"
             check={audit.channelManagerBasic.ok && (audit.channelManagerBasic.totalItems ?? 0) > 0}
-            detail={`HTTP ${audit.channelManagerBasic.status ?? "n/a"} · ${audit.channelManagerBasic.totalItems ?? 0} WABA(s)`}
+            detail={`HTTP ${audit.channelManagerBasic.status ?? "n/a"} - ${audit.channelManagerBasic.ok ? `${audit.channelManagerBasic.totalItems ?? 0} WABA(s)` : audit.channelManagerBasic.detail}`}
           />
           <CheckRow
             label="Channel Manager with application JWT"
             check={audit.channelManagerJwt.ok && (audit.channelManagerJwt.totalItems ?? 0) > 0}
-            detail={`HTTP ${audit.channelManagerJwt.status ?? "n/a"} · ${audit.channelManagerJwt.totalItems ?? 0} WABA(s)`}
+            detail={`HTTP ${audit.channelManagerJwt.status ?? "n/a"} - ${audit.channelManagerJwt.ok ? `${audit.channelManagerJwt.totalItems ?? 0} WABA(s)` : audit.channelManagerJwt.detail}`}
           />
           <p className="mt-4 rounded-md border bg-muted px-3 py-2 text-sm leading-6">{audit.conclusion}</p>
         </div>

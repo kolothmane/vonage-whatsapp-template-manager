@@ -44,36 +44,8 @@ async function withEnvBackedEnvironments(environments: EnvironmentRecord[]) {
     return environments;
   }
 
-  const existing = environments.find((environment) => environment.name === PUIG_PROD_ENVIRONMENT_NAME && !environment.archivedAt);
-  if (existing) {
-    const admins = envBackedAdmins();
-    const nextUsers = [...new Set([...existing.userEmails, ...admins])];
-    const credentialsAreCurrent =
-      decryptSecret(existing.apiKey) === puigApiKey &&
-      decryptSecret(existing.apiSecret) === puigApiSecret &&
-      decryptSecret(existing.applicationId) === "" &&
-      decryptSecret(existing.privateKey) === "";
-    const usersAreCurrent =
-      nextUsers.length === existing.userEmails.length &&
-      nextUsers.every((email) => existing.userEmails.includes(email));
-    if (credentialsAreCurrent && usersAreCurrent) {
-      return environments;
-    }
-
-    const next = environments.map((environment) => (
-      environment.id === existing.id
-        ? {
-            ...environment,
-            apiKey: encryptSecret(puigApiKey),
-            apiSecret: encryptSecret(puigApiSecret),
-            applicationId: encryptSecret(""),
-            privateKey: encryptSecret(""),
-            userEmails: nextUsers,
-          }
-        : environment
-    ));
-    await getKv().set(ENVIRONMENTS_KEY, next);
-    return next;
+  if (environments.some((environment) => environment.name === PUIG_PROD_ENVIRONMENT_NAME && !environment.archivedAt)) {
+    return environments;
   }
 
   const admins = envBackedAdmins();
@@ -163,6 +135,20 @@ export async function renameEnvironment(id: string, name: string) {
   const environment = environments.find((item) => item.id === id);
   if (!environment) throw new Error("Environment not found.");
   environment.name = name.trim();
+  await getKv().set(ENVIRONMENTS_KEY, environments);
+}
+
+export async function updateEnvironmentCredentials(
+  id: string,
+  input: { apiKey: string; apiSecret: string; applicationId?: string; privateKey?: string },
+) {
+  const environments = await allEnvironments();
+  const environment = environments.find((item) => item.id === id && !item.archivedAt);
+  if (!environment) throw new Error("Environment not found.");
+  environment.apiKey = encryptSecret(input.apiKey.trim());
+  environment.apiSecret = encryptSecret(input.apiSecret.trim());
+  environment.applicationId = encryptSecret(input.applicationId?.trim() ?? "");
+  environment.privateKey = encryptSecret(input.privateKey?.trim() ?? "");
   await getKv().set(ENVIRONMENTS_KEY, environments);
 }
 

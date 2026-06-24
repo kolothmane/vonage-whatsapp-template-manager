@@ -11,6 +11,7 @@ export function EnvironmentManager({ initialEnvironments, userEmails }: { initia
   const [environments, setEnvironments] = useState(initialEnvironments);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [wabaEditingId, setWabaEditingId] = useState<string | null>(null);
+  const [credentialsEditingId, setCredentialsEditingId] = useState<string | null>(null);
   const [userDrafts, setUserDrafts] = useState<Record<string, string[]>>(
     Object.fromEntries(initialEnvironments.map((environment) => [environment.id, environment.userEmails])),
   );
@@ -19,9 +20,11 @@ export function EnvironmentManager({ initialEnvironments, userEmails }: { initia
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [nameDraft, setNameDraft] = useState("");
   const [keyFileName, setKeyFileName] = useState("");
+  const [credentialKeyFileName, setCredentialKeyFileName] = useState("");
   const [wabaDraft, setWabaDraft] = useState("");
   const [message, setMessage] = useState("");
   const [form, setForm] = useState({ name: "", apiKey: "", apiSecret: "", applicationId: "", privateKeyFile: "" });
+  const [credentialForm, setCredentialForm] = useState({ apiKey: "", apiSecret: "", applicationId: "", privateKeyFile: "" });
 
   async function create(event: FormEvent) {
     event.preventDefault();
@@ -127,6 +130,23 @@ export function EnvironmentManager({ initialEnvironments, userEmails }: { initia
     setMessage("WABA IDs updated. Run Sync WABAs to refresh their metadata.");
   }
 
+  async function updateCredentials(id: string) {
+    setSavingId(id);
+    setMessage("");
+    const response = await fetch(`/api/environments/${id}/credentials`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(credentialForm),
+    });
+    const result = await response.json();
+    setSavingId(null);
+    if (!response.ok) return setMessage(result.error ?? "Unable to update credentials.");
+    setCredentialForm({ apiKey: "", apiSecret: "", applicationId: "", privateKeyFile: "" });
+    setCredentialKeyFileName("");
+    setCredentialsEditingId(null);
+    setMessage("Credentials updated. Run connection audit or Sync WABAs to verify access.");
+  }
+
   return (
     <div className="grid gap-5">
       <form onSubmit={create} className="grid gap-3">
@@ -199,6 +219,7 @@ export function EnvironmentManager({ initialEnvironments, userEmails }: { initia
                     setWabaEditingId((current) => current === environment.id ? null : environment.id);
                     setWabaDraft(environment.manualWabaIds.join("\n"));
                     setEditingId(null);
+                    setCredentialsEditingId(null);
                     setMessage("");
                   }}
                 >
@@ -212,12 +233,28 @@ export function EnvironmentManager({ initialEnvironments, userEmails }: { initia
                     setUserDrafts((current) => ({ ...current, [environment.id]: environment.userEmails }));
                     setEditingId((current) => current === environment.id ? null : environment.id);
                     setWabaEditingId(null);
+                    setCredentialsEditingId(null);
                     setNewEmail("");
                     setMessage("");
                   }}
                 >
                   <Pencil className="h-4 w-4" />
                   Manage users
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setCredentialsEditingId((current) => current === environment.id ? null : environment.id);
+                    setEditingId(null);
+                    setWabaEditingId(null);
+                    setCredentialForm({ apiKey: "", apiSecret: "", applicationId: "", privateKeyFile: "" });
+                    setCredentialKeyFileName("");
+                    setMessage("");
+                  }}
+                >
+                  <FileKey className="h-4 w-4" />
+                  Update credentials
                 </Button>
                 <Button variant="ghost" size="icon" onClick={() => void archive(environment.id)} aria-label={`Archive ${environment.name}`} title="Archive environment"><Archive className="h-4 w-4" /></Button>
               </div>
@@ -258,6 +295,73 @@ export function EnvironmentManager({ initialEnvironments, userEmails }: { initia
                   <Button type="button" onClick={() => void updateWabaIds(environment.id)} disabled={savingId === environment.id}>
                     <Check className="h-4 w-4" />
                     {savingId === environment.id ? "Saving..." : "Save WABA IDs"}
+                  </Button>
+                </div>
+              </div>
+            ) : null}
+
+            {credentialsEditingId === environment.id ? (
+              <div className="grid gap-3 rounded-md border bg-secondary/40 p-4">
+                <div>
+                  <div className="text-sm font-medium">Replace encrypted credentials</div>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Existing secrets cannot be displayed. Enter the full credentials again to replace them.
+                  </p>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <Input
+                    type="password"
+                    autoComplete="new-password"
+                    placeholder="API Key"
+                    value={credentialForm.apiKey}
+                    onChange={(event) => setCredentialForm({ ...credentialForm, apiKey: event.target.value })}
+                    required
+                  />
+                  <Input
+                    type="password"
+                    autoComplete="new-password"
+                    placeholder="API Secret"
+                    value={credentialForm.apiSecret}
+                    onChange={(event) => setCredentialForm({ ...credentialForm, apiSecret: event.target.value })}
+                    required
+                  />
+                  <Input
+                    type="password"
+                    autoComplete="new-password"
+                    placeholder="Application ID (optional)"
+                    value={credentialForm.applicationId}
+                    onChange={(event) => setCredentialForm({ ...credentialForm, applicationId: event.target.value })}
+                  />
+                  <label className="flex min-h-24 cursor-pointer flex-col items-center justify-center gap-2 rounded-md border border-dashed bg-white p-4 text-center">
+                    <FileKey className="h-5 w-5" />
+                    <span className="text-sm font-medium">{credentialKeyFileName || "Select private key file (optional)"}</span>
+                    <span className="text-xs text-muted-foreground">Vonage .key or .pem file for JWT-only actions</span>
+                    <input
+                      className="sr-only"
+                      type="file"
+                      accept=".key,.pem,application/x-pem-file"
+                      onChange={async (event) => {
+                        const file = event.target.files?.[0];
+                        if (!file) return;
+                        const privateKeyFile = await file.text();
+                        setCredentialKeyFileName(file.name);
+                        setCredentialForm((current) => ({ ...current, privateKeyFile }));
+                      }}
+                    />
+                  </label>
+                </div>
+                <div className="flex justify-end gap-2">
+                  <Button type="button" variant="ghost" onClick={() => setCredentialsEditingId(null)}>
+                    <X className="h-4 w-4" />
+                    Cancel
+                  </Button>
+                  <Button
+                    type="button"
+                    onClick={() => void updateCredentials(environment.id)}
+                    disabled={savingId === environment.id || !credentialForm.apiKey || !credentialForm.apiSecret}
+                  >
+                    <Check className="h-4 w-4" />
+                    {savingId === environment.id ? "Saving..." : "Save credentials"}
                   </Button>
                 </div>
               </div>
