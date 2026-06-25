@@ -447,9 +447,13 @@ export async function listVonageTemplates(wabaId: string): Promise<VonageExistin
       templates?: Array<Record<string, unknown>>;
       paging?: { next?: string };
       detail?: string;
+      title?: string;
+      message?: string;
     };
     if (!response.ok) {
-      throw new Error(`Vonage template list failed with ${response.status}: ${data.detail ?? "Unknown error"}`);
+      throw new Error(
+        `Vonage template list failed with ${response.status}: ${data.detail ?? data.message ?? data.title ?? "Unknown error"}`,
+      );
     }
 
     for (const template of data.templates ?? []) {

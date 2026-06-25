@@ -12,7 +12,13 @@ export default async function WabaTemplatesPage({ params }: { params: Promise<{ 
   const wabas = await listWabas();
   const waba = wabas.find((item) => item.id === id);
   if (!waba) notFound();
-  const templates = await listVonageTemplates(id);
+  let templates: Awaited<ReturnType<typeof listVonageTemplates>> = [];
+  let templateError = "";
+  try {
+    templates = await listVonageTemplates(id);
+  } catch (error) {
+    templateError = error instanceof Error ? error.message : "Unable to load existing templates from Vonage.";
+  }
   return (
     <div className="grid gap-5">
       <section className="flex items-end justify-between gap-4">
@@ -23,7 +29,15 @@ export default async function WabaTemplatesPage({ params }: { params: Promise<{ 
       </section>
       <Card>
         <CardHeader><CardTitle>Existing templates</CardTitle><CardDescription>Templates currently present on this WABA. Updates are sent directly to Vonage.</CardDescription></CardHeader>
-        <CardContent><ExistingWabaTemplates wabaId={id} initialTemplates={templates} /></CardContent>
+        <CardContent>
+          {templateError ? (
+            <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm leading-6 text-red-800">
+              {templateError}
+            </div>
+          ) : (
+            <ExistingWabaTemplates wabaId={id} initialTemplates={templates} />
+          )}
+        </CardContent>
       </Card>
     </div>
   );
