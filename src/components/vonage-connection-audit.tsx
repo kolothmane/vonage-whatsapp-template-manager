@@ -69,7 +69,7 @@ export function VonageConnectionAuditPanel() {
           <CheckRow
             label="Active environment"
             check={audit.environment.apiKeyConfigured && audit.environment.apiSecretConfigured}
-            detail={`${audit.environment.name ?? "Unknown environment"} - API key ending in ${audit.environment.apiKeySuffix ?? "n/a"} - API secret ${audit.environment.apiSecretConfigured ? "configured" : "missing"} - Application JWT ${audit.environment.applicationConfigured ? "configured" : "not configured"}`}
+            detail={`${audit.environment.name ?? "Unknown environment"} - API key ending in ${audit.environment.apiKeySuffix ?? "n/a"} - API secret ${audit.environment.apiSecretConfigured ? "configured" : "missing"} - VCR credential ${audit.environment.vcrCredentialConfigured ? "configured" : "not configured"}`}
           />
           <CheckRow
             label="Vonage account credentials"
@@ -77,9 +77,9 @@ export function VonageConnectionAuditPanel() {
             detail={`HTTP ${audit.account.status ?? "n/a"} - ${audit.account.detail}`}
           />
           <CheckRow
-            label="Application belongs to account"
-            check={audit.application.belongsToAccount === true}
-            detail={`HTTP ${audit.application.status ?? "n/a"} - ${audit.application.applicationId ?? "No Application ID"}`}
+            label="VCR token"
+            check={audit.vcrToken.ok}
+            detail={`HTTP ${audit.vcrToken.status ?? "n/a"} - ${audit.vcrToken.detail}`}
           />
           <CheckRow
             label="Channel Manager with Basic Auth"
@@ -87,9 +87,9 @@ export function VonageConnectionAuditPanel() {
             detail={`HTTP ${audit.channelManagerBasic.status ?? "n/a"} - ${audit.channelManagerBasic.ok ? `${audit.channelManagerBasic.totalItems ?? 0} WABA(s)` : audit.channelManagerBasic.detail}`}
           />
           <CheckRow
-            label="Channel Manager with application JWT"
-            check={audit.channelManagerJwt.ok && (audit.channelManagerJwt.totalItems ?? 0) > 0}
-            detail={`HTTP ${audit.channelManagerJwt.status ?? "n/a"} - ${audit.channelManagerJwt.ok ? `${audit.channelManagerJwt.totalItems ?? 0} WABA(s)` : audit.channelManagerJwt.detail}`}
+            label="Channel Manager with VCR token"
+            check={audit.channelManagerVcrToken.ok && (audit.channelManagerVcrToken.totalItems ?? 0) > 0}
+            detail={`HTTP ${audit.channelManagerVcrToken.status ?? "n/a"} - ${audit.channelManagerVcrToken.ok ? `${audit.channelManagerVcrToken.totalItems ?? 0} WABA(s)` : audit.channelManagerVcrToken.detail}`}
           />
           <p className="mt-4 rounded-md border bg-muted px-3 py-2 text-sm leading-6">{audit.conclusion}</p>
         </div>

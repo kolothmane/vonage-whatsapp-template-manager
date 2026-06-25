@@ -1,4 +1,3 @@
-import { importPKCS8, SignJWT } from "jose";
 import type { VonageTemplatePayload, Waba } from "@/lib/domain/types";
 import { getKv, hasKvConfig } from "@/lib/server/kv";
 import { ensureVonageTrailingParamMarker } from "@/lib/domain/payload";
@@ -6,20 +5,28 @@ import { environmentKey, getActiveEnvironment } from "@/lib/server/environments"
 
 
 type VonageConfig = {
+  environmentId?: string;
   apiKey?: string;
   apiSecret?: string;
   applicationId?: string;
   privateKey?: string;
+  vcrCredentialName?: string;
   environmentName?: string;
 };
 
 async function getVonageConfig(): Promise<VonageConfig> {
   const environment = await getActiveEnvironment();
+  const envBackedVcrCredential =
+    environment.apiKey === process.env.VONAGE_API_KEY
+      ? process.env.VONAGE_VCR_CREDENTIAL_NAME ?? process.env.VCR_CREDENTIAL_NAME
+      : undefined;
   return {
+    environmentId: environment.id,
     apiKey: environment.apiKey,
     apiSecret: environment.apiSecret,
     applicationId: environment.applicationId,
     privateKey: environment.privateKey?.replace(/\\n/g, "\n"),
+    vcrCredentialName: environment.vcrCredentialName || envBackedVcrCredential,
     environmentName: environment.name,
   };
 }
@@ -36,20 +43,73 @@ function basicAuthorizationHeader(config: VonageConfig) {
   return `Basic ${basicAuth(config)}`;
 }
 
-async function applicationAuthorizationHeader(config: VonageConfig) {
-  if (!config.applicationId || !config.privateKey) {
+function normalizeVcrCredentialName(value: string) {
+  const trimmed = value.trim();
+  return trimmed.endsWith("-CERT") ? trimmed : `${trimmed}-CERT`;
+}
+
+function extractVcrToken(body: Record<string, unknown>) {
+  for (const key of ["token", "access_token", "jwt"]) {
+    if (typeof body[key] === "string") return String(body[key]);
+  }
+  if (typeof body.body === "string") return body.body;
+  if (body.body && typeof body.body === "object") {
+    const nested = body.body as Record<string, unknown>;
+    for (const key of ["token", "access_token", "jwt"]) {
+      if (typeof nested[key] === "string") return String(nested[key]);
+    }
+  }
+  return "";
+}
+
+async function vcrAuthorizationHeader(config: VonageConfig) {
+  if (!config.apiKey || !config.apiSecret || !config.vcrCredentialName) {
     throw new Error(
-      "VONAGE_APPLICATION_ID and VONAGE_PRIVATE_KEY are required for template management.",
+      "API key, API secret and VCR credential name are required for template management.",
     );
   }
 
-  const key = await importPKCS8(config.privateKey, "RS256");
-  const token = await new SignJWT({ application_id: config.applicationId })
-    .setProtectedHeader({ alg: "RS256", typ: "JWT" })
-    .setIssuedAt()
-    .setJti(crypto.randomUUID())
-    .setExpirationTime("5m")
-    .sign(key);
+  const credentialName = normalizeVcrCredentialName(config.vcrCredentialName);
+  const cacheKey = config.environmentId
+    ? environmentKey(config.environmentId, `vcr-token:${credentialName}`)
+    : "";
+  if (cacheKey && hasKvConfig()) {
+    const cached = await getKv().get<{ token: string; expiresAt: string }>(cacheKey);
+    if (cached?.token && Date.parse(cached.expiresAt) - Date.now() > 5 * 60 * 1000) {
+      return `Bearer ${cached.token}`;
+    }
+  }
+
+  const response = await fetch(
+    `https://api-eu.vonage.com/v1/creds/${encodeURIComponent(credentialName)}/token`,
+    {
+      headers: {
+        Accept: "application/json",
+        Authorization: basicAuthorizationHeader(config),
+      },
+      cache: "no-store",
+    },
+  );
+  const body = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!response.ok) {
+    throw new Error(
+      `Vonage VCR token retrieval failed with ${response.status}: ${JSON.stringify(body)}`,
+    );
+  }
+
+  const token = extractVcrToken(body);
+  if (!token) {
+    throw new Error(
+      `Vonage VCR token response did not include a usable token. Response keys: ${Object.keys(body).join(", ") || "none"}.`,
+    );
+  }
+  const ttlSeconds = Number(body.ttl ?? 7200);
+  if (cacheKey && hasKvConfig()) {
+    await getKv().set(cacheKey, {
+      token,
+      expiresAt: new Date(Date.now() + Math.max(60, ttlSeconds) * 1000).toISOString(),
+    });
+  }
   return `Bearer ${token}`;
 }
 
@@ -235,15 +295,15 @@ async function fetchVerifiedManualWabas(config: VonageConfig): Promise<Waba[]> {
   }
 
   const basicAuthorization = basicAuthorizationHeader(config);
-  const jwtAuthorization = config.applicationId && config.privateKey
-    ? await applicationAuthorizationHeader(config)
+  const vcrAuthorization = config.vcrCredentialName
+    ? await vcrAuthorizationHeader(config)
     : null;
   const channelAuthorizations = [
     basicAuthorization,
-    ...(jwtAuthorization ? [jwtAuthorization] : []),
+    ...(vcrAuthorization ? [vcrAuthorization] : []),
   ];
   const templateAuthorizations = [
-    ...(jwtAuthorization ? [jwtAuthorization] : []),
+    ...(vcrAuthorization ? [vcrAuthorization] : []),
     basicAuthorization,
   ];
   const verified: Array<Waba | null> = await Promise.all(
@@ -302,19 +362,7 @@ export async function fetchVonageWabas(): Promise<Waba[]> {
     basicAuthorizationHeader(config),
     credentialLabel,
   );
-  let selectedResult = basicResult;
-  let jwtTotalItems: number | null = null;
-
-  if (basicResult.rawWabas.length === 0 && config.applicationId && config.privateKey) {
-    const jwtResult = await fetchAllVonageWabaPages(
-      await applicationAuthorizationHeader(config),
-      credentialLabel,
-    );
-    jwtTotalItems = jwtResult.totalItems;
-    if (jwtResult.rawWabas.length > 0) {
-      selectedResult = jwtResult;
-    }
-  }
+  const selectedResult = basicResult;
 
   if (selectedResult.rawWabas.length === 0) {
     const manualWabas = await fetchVerifiedManualWabas(config);
@@ -328,9 +376,8 @@ export async function fetchVonageWabas(): Promise<Waba[]> {
     const requestId = basicResult.firstPage.requestId
       ? ` Request ID: ${basicResult.firstPage.requestId}.`
       : "";
-    const jwtTotal = jwtTotalItems === null ? "not attempted" : String(jwtTotalItems);
     throw new Error(
-      `Vonage authenticated the request but returned no WABAs for the ${accountLabel}. Basic total_items: ${basicResult.totalItems}. JWT total_items: ${jwtTotal}.${requestId}`,
+      `Vonage authenticated the request but returned no WABAs for the ${accountLabel}. Basic total_items: ${basicResult.totalItems}.${requestId}`,
     );
   }
 
@@ -359,7 +406,7 @@ export async function createVonageTemplate(wabaId: string, payload: VonageTempla
   const response = await fetch(`https://api.nexmo.com/v2/whatsapp-manager/wabas/${wabaId}/templates`, {
     method: "POST",
     headers: {
-      Authorization: await applicationAuthorizationHeader(config),
+      Authorization: await vcrAuthorizationHeader(config),
       "Content-Type": "application/json",
     },
     body: JSON.stringify(payload),
@@ -386,7 +433,7 @@ export type VonageExistingTemplate = {
 
 export async function listVonageTemplates(wabaId: string): Promise<VonageExistingTemplate[]> {
   const config = await getVonageConfig();
-  const authorization = await applicationAuthorizationHeader(config);
+  const authorization = await vcrAuthorizationHeader(config);
   let url: string | null =
     `https://api.nexmo.com/v2/whatsapp-manager/wabas/${encodeURIComponent(wabaId)}/templates?limit=500`;
   const templates: VonageExistingTemplate[] = [];
@@ -442,7 +489,7 @@ export async function updateVonageTemplate(
     {
       method: "PUT",
       headers: {
-        Authorization: await applicationAuthorizationHeader(config),
+        Authorization: await vcrAuthorizationHeader(config),
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
@@ -473,19 +520,16 @@ export type VonageConnectionAudit = {
     apiKeySuffix: string | null;
     apiKeyConfigured: boolean;
     apiSecretConfigured: boolean;
-    applicationConfigured: boolean;
+    vcrCredentialConfigured: boolean;
   };
   account: AuditCheck & {
     apiKeySuffix: string | null;
   };
-  application: AuditCheck & {
-    applicationId: string | null;
-    belongsToAccount: boolean | null;
-  };
+  vcrToken: AuditCheck;
   channelManagerBasic: AuditCheck & {
     totalItems: number | null;
   };
-  channelManagerJwt: AuditCheck & {
+  channelManagerVcrToken: AuditCheck & {
     totalItems: number | null;
   };
   conclusion: string;
@@ -522,13 +566,12 @@ async function auditChannelManager(
 export async function auditVonageConnection(): Promise<VonageConnectionAudit> {
   const config = await getVonageConfig();
   const apiKeySuffix = config.apiKey?.slice(-4) ?? null;
-  const applicationId = config.applicationId ?? null;
   const environment = {
     name: config.environmentName ?? null,
     apiKeySuffix,
     apiKeyConfigured: Boolean(config.apiKey),
     apiSecretConfigured: Boolean(config.apiSecret),
-    applicationConfigured: Boolean(config.applicationId && config.privateKey),
+    vcrCredentialConfigured: Boolean(config.vcrCredentialName),
   };
 
   let account: VonageConnectionAudit["account"] = {
@@ -537,12 +580,10 @@ export async function auditVonageConnection(): Promise<VonageConnectionAudit> {
     detail: "Basic account credentials are not configured.",
     apiKeySuffix,
   };
-  let application: VonageConnectionAudit["application"] = {
+  let vcrToken: VonageConnectionAudit["vcrToken"] = {
     ok: false,
     status: null,
-    detail: "Application credentials are not configured.",
-    applicationId,
-    belongsToAccount: null,
+    detail: "VCR credential name is not configured.",
   };
   let channelManagerBasic: VonageConnectionAudit["channelManagerBasic"] = {
     ok: false,
@@ -550,10 +591,10 @@ export async function auditVonageConnection(): Promise<VonageConnectionAudit> {
     detail: "Basic account credentials are not configured.",
     totalItems: null,
   };
-  let channelManagerJwt: VonageConnectionAudit["channelManagerJwt"] = {
+  let channelManagerVcrToken: VonageConnectionAudit["channelManagerVcrToken"] = {
     ok: false,
     status: null,
-    detail: "Application credentials are not configured.",
+    detail: "VCR credential name is not configured.",
     totalItems: null,
   };
 
@@ -573,36 +614,20 @@ export async function auditVonageConnection(): Promise<VonageConnectionAudit> {
     };
     channelManagerBasic = await auditChannelManager(authorization);
 
-    if (applicationId) {
-      const applicationResponse = await fetch(
-        `https://api.nexmo.com/v2/applications/${encodeURIComponent(applicationId)}`,
-        {
-          headers: { Authorization: authorization, Accept: "application/json" },
-          cache: "no-store",
-        },
-      );
-      const applicationBody = await safeJson(applicationResponse);
-      application = {
-        ok: applicationResponse.ok,
-        status: applicationResponse.status,
-        detail: responseDetail(applicationResponse, applicationBody),
-        requestId: applicationResponse.headers.get("x-request-id") ?? undefined,
-        applicationId,
-        belongsToAccount: applicationResponse.ok,
-      };
-    }
   }
 
-  if (config.applicationId && config.privateKey) {
+  if (config.vcrCredentialName) {
     try {
-      channelManagerJwt = await auditChannelManager(
-        await applicationAuthorizationHeader(config),
-      );
+      const authorization = await vcrAuthorizationHeader(config);
+      vcrToken = { ok: true, status: 200, detail: "VCR token retrieved." };
+      channelManagerVcrToken = await auditChannelManager(authorization);
     } catch (error) {
-      channelManagerJwt = {
+      const detail = error instanceof Error ? error.message : "VCR token retrieval failed.";
+      vcrToken = { ok: false, status: null, detail };
+      channelManagerVcrToken = {
         ok: false,
         status: null,
-        detail: error instanceof Error ? error.message : "JWT generation failed.",
+        detail,
         totalItems: null,
       };
     }
@@ -612,22 +637,19 @@ export async function auditVonageConnection(): Promise<VonageConnectionAudit> {
     "The Vonage connection is valid, but no WABAs are linked to this account in Channel Manager.";
   if (!account.ok) {
     conclusion = `Vonage rejected the account credentials for ${environment.name ?? "the active environment"}. Check that the API key ending in ${apiKeySuffix ?? "n/a"} and its matching API secret are from the same Vonage account.`;
-  } else if (application.belongsToAccount === false) {
-    conclusion =
-      "The Application ID does not belong to the account identified by VONAGE_API_KEY.";
   } else if ((channelManagerBasic.totalItems ?? 0) > 0) {
     conclusion = "WABAs are linked to the account and can be synchronized with Basic Auth.";
-  } else if ((channelManagerJwt.totalItems ?? 0) > 0) {
+  } else if ((channelManagerVcrToken.totalItems ?? 0) > 0) {
     conclusion =
-      "WABAs are visible through the application JWT but not through the configured account credentials.";
+      "WABAs are visible through the VCR token but not through the configured account credentials.";
   }
 
   return {
     environment,
     account,
-    application,
+    vcrToken,
     channelManagerBasic,
-    channelManagerJwt,
+    channelManagerVcrToken,
     conclusion,
   };
 }

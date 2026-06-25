@@ -18,16 +18,11 @@ export async function POST(request: Request) {
   if (!body?.name || !body?.apiKey || !body?.apiSecret) {
     return NextResponse.json({ error: "Environment name, API key and API secret are required." }, { status: 400 });
   }
-  const privateKey = String(body.privateKeyFile).replace(/\\n/g, "\n").trim();
-  if (privateKey && (!privateKey.includes("-----BEGIN PRIVATE KEY-----") || !privateKey.includes("-----END PRIVATE KEY-----"))) {
-    return NextResponse.json({ error: "Select a valid Vonage .key or .pem private key file." }, { status: 400 });
-  }
   const id = await createEnvironment({
     name: body.name,
     apiKey: body.apiKey,
     apiSecret: body.apiSecret,
-    applicationId: body.applicationId,
-    privateKey,
+    vcrCredentialName: body.vcrCredentialName,
     createdBy: session.user.email,
   });
   return NextResponse.json({ id }, { status: 201 });

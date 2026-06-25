@@ -30,6 +30,7 @@ vi.mock("@/lib/server/environments", () => ({
     apiSecret: process.env.VONAGE_API_SECRET,
     applicationId: process.env.VONAGE_APPLICATION_ID,
     privateKey: process.env.VONAGE_PRIVATE_KEY,
+    vcrCredentialName: process.env.VONAGE_VCR_CREDENTIAL_NAME,
   })),
   environmentKey: vi.fn((environmentId: string, collection: string) => `waba-br:env:${environmentId}:${collection}`),
 }));
@@ -41,6 +42,7 @@ describe("fetchVonageWabas", () => {
     mocks.kvGet.mockReset();
     delete process.env.VONAGE_APPLICATION_ID;
     delete process.env.VONAGE_PRIVATE_KEY;
+    delete process.env.VONAGE_VCR_CREDENTIAL_NAME;
   });
 
   it("uses the Channel Manager response shape", async () => {
@@ -127,14 +129,14 @@ describe("fetchVonageWabas", () => {
     process.env.VONAGE_API_SECRET = "secret";
 
     await expect(fetchVonageWabas()).rejects.toThrow(
-      "Basic total_items: 0. JWT total_items: not attempted. Request ID: request-123",
+      "Basic total_items: 0. Request ID: request-123",
     );
   });
 
-  it("retries with JWT when Basic Auth returns zero WABAs", async () => {
+  it("does not use VCR token for parent WABA discovery", async () => {
     const fetchMock = vi
       .fn()
-      .mockResolvedValueOnce(
+      .mockResolvedValue(
         new Response(
           JSON.stringify({
             total_items: 0,
@@ -143,68 +145,38 @@ describe("fetchVonageWabas", () => {
           }),
           { status: 200 },
         ),
-      )
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            total_items: 1,
-            total_pages: 1,
-            _embedded: {
-              wabas: [{ waba_id: "jwt-waba", name: "JWT WABA", status: "ACTIVE" }],
-            },
-          }),
-          { status: 200 },
-        ),
       );
     vi.stubGlobal("fetch", fetchMock);
 
     process.env.VONAGE_API_KEY = "key";
     process.env.VONAGE_API_SECRET = "secret";
-    process.env.VONAGE_APPLICATION_ID = "application-id";
-    process.env.VONAGE_PRIVATE_KEY = "private-key";
+    process.env.VONAGE_VCR_CREDENTIAL_NAME = "credential-CERT";
 
-    await expect(fetchVonageWabas()).resolves.toEqual([
-      expect.objectContaining({ id: "jwt-waba", name: "JWT WABA" }),
-    ]);
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    await expect(fetchVonageWabas()).rejects.toThrow("Basic total_items: 0.");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock.mock.calls[0][1].headers.Authorization).toMatch(/^Basic /);
-    expect(fetchMock.mock.calls[1][1].headers.Authorization).toBe("Bearer test-jwt");
   });
 
-  it("reports Basic and JWT totals when both return zero WABAs", async () => {
+  it("reports Basic totals when the parent WABA list is empty", async () => {
     vi.stubGlobal(
       "fetch",
-      vi
-        .fn()
-        .mockResolvedValueOnce(
-          new Response(
-            JSON.stringify({
-              total_items: 0,
-              total_pages: 1,
-              _embedded: { wabas: [] },
-            }),
-            { status: 200 },
-          ),
-        )
-        .mockResolvedValueOnce(
-          new Response(
-            JSON.stringify({
-              total_items: 0,
-              total_pages: 1,
-              _embedded: { wabas: [] },
-            }),
-            { status: 200 },
-          ),
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            total_items: 0,
+            total_pages: 1,
+            _embedded: { wabas: [] },
+          }),
+          { status: 200 },
         ),
+      ),
     );
 
     process.env.VONAGE_API_KEY = "key";
     process.env.VONAGE_API_SECRET = "secret";
-    process.env.VONAGE_APPLICATION_ID = "application-id";
-    process.env.VONAGE_PRIVATE_KEY = "private-key";
 
     await expect(fetchVonageWabas()).rejects.toThrow(
-      "Basic total_items: 0. JWT total_items: 0.",
+      "Basic total_items: 0.",
     );
   });
 
@@ -248,8 +220,6 @@ describe("fetchVonageWabas", () => {
 
     process.env.VONAGE_API_KEY = "account-key-7877";
     process.env.VONAGE_API_SECRET = "secret";
-    process.env.VONAGE_APPLICATION_ID = "application-id";
-    process.env.VONAGE_PRIVATE_KEY = "private-key";
 
     await expect(fetchVonageWabas()).resolves.toEqual([
       {
@@ -263,7 +233,7 @@ describe("fetchVonageWabas", () => {
     ]);
   });
 
-  it("audits account authentication separately from application authentication", async () => {
+  it("audits account authentication separately from VCR token authentication", async () => {
     vi.stubGlobal(
       "fetch",
       vi
@@ -290,7 +260,7 @@ describe("fetchVonageWabas", () => {
     const audit = await auditVonageConnection();
     expect(audit.account.ok).toBe(true);
     expect(audit.channelManagerBasic.totalItems).toBe(0);
-    expect(audit.application.belongsToAccount).toBeNull();
+    expect(audit.vcrToken.ok).toBe(false);
     expect(audit.conclusion).toContain("no WABAs are linked to this account");
   });
 });

@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useState } from "react";
-import { Archive, Check, FileKey, ListPlus, Pencil, Plus, UserPlus, X } from "lucide-react";
+import { Archive, Check, KeyRound, ListPlus, Pencil, Plus, UserPlus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { hasAllowedCompanyDomain, normalizeEmail } from "@/lib/server/admin-access";
@@ -19,12 +19,10 @@ export function EnvironmentManager({ initialEnvironments, userEmails }: { initia
   const [savingId, setSavingId] = useState<string | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [nameDraft, setNameDraft] = useState("");
-  const [keyFileName, setKeyFileName] = useState("");
-  const [credentialKeyFileName, setCredentialKeyFileName] = useState("");
   const [wabaDraft, setWabaDraft] = useState("");
   const [message, setMessage] = useState("");
-  const [form, setForm] = useState({ name: "", apiKey: "", apiSecret: "", applicationId: "", privateKeyFile: "" });
-  const [credentialForm, setCredentialForm] = useState({ apiKey: "", apiSecret: "", applicationId: "", privateKeyFile: "" });
+  const [form, setForm] = useState({ name: "", apiKey: "", apiSecret: "", vcrCredentialName: "" });
+  const [credentialForm, setCredentialForm] = useState({ apiKey: "", apiSecret: "", vcrCredentialName: "" });
 
   async function create(event: FormEvent) {
     event.preventDefault();
@@ -35,8 +33,7 @@ export function EnvironmentManager({ initialEnvironments, userEmails }: { initia
     const refreshed = await fetch("/api/environments").then((item) => item.json());
     setEnvironments(refreshed.environments);
     setUserDrafts(Object.fromEntries(refreshed.environments.map((environment: SafeEnvironment) => [environment.id, environment.userEmails])));
-    setForm({ name: "", apiKey: "", apiSecret: "", applicationId: "", privateKeyFile: "" });
-    setKeyFileName("");
+    setForm({ name: "", apiKey: "", apiSecret: "", vcrCredentialName: "" });
     setMessage("Environment created. Credentials are encrypted and cannot be displayed again.");
   }
 
@@ -141,8 +138,7 @@ export function EnvironmentManager({ initialEnvironments, userEmails }: { initia
     const result = await response.json();
     setSavingId(null);
     if (!response.ok) return setMessage(result.error ?? "Unable to update credentials.");
-    setCredentialForm({ apiKey: "", apiSecret: "", applicationId: "", privateKeyFile: "" });
-    setCredentialKeyFileName("");
+    setCredentialForm({ apiKey: "", apiSecret: "", vcrCredentialName: "" });
     setCredentialsEditingId(null);
     setMessage("Credentials updated. Run connection audit or Sync WABAs to verify access.");
   }
@@ -154,24 +150,13 @@ export function EnvironmentManager({ initialEnvironments, userEmails }: { initia
         <div className="grid gap-3 sm:grid-cols-2">
           <Input type="password" autoComplete="new-password" placeholder="API Key" value={form.apiKey} onChange={(event) => setForm({ ...form, apiKey: event.target.value })} required />
           <Input type="password" autoComplete="new-password" placeholder="API Secret" value={form.apiSecret} onChange={(event) => setForm({ ...form, apiSecret: event.target.value })} required />
-          <Input type="password" autoComplete="new-password" placeholder="Application ID (optional)" value={form.applicationId} onChange={(event) => setForm({ ...form, applicationId: event.target.value })} />
-          <label className="flex min-h-28 cursor-pointer flex-col items-center justify-center gap-2 rounded-md border border-dashed bg-secondary/30 p-4 text-center">
-            <FileKey className="h-5 w-5" />
-            <span className="text-sm font-medium">{keyFileName || "Select private key file (optional)"}</span>
-            <span className="text-xs text-muted-foreground">Vonage .key or .pem file for JWT-only actions</span>
-            <input
-              className="sr-only"
-              type="file"
-              accept=".key,.pem,application/x-pem-file"
-              onChange={async (event) => {
-                const file = event.target.files?.[0];
-                if (!file) return;
-                const privateKeyFile = await file.text();
-                setKeyFileName(file.name);
-                setForm((current) => ({ ...current, privateKeyFile }));
-              }}
-            />
-          </label>
+          <Input
+            type="password"
+            autoComplete="new-password"
+            placeholder="VCR credential name, e.g. 00D...-CERT"
+            value={form.vcrCredentialName}
+            onChange={(event) => setForm({ ...form, vcrCredentialName: event.target.value })}
+          />
         </div>
         <Button className="w-fit" type="submit"><Plus className="h-4 w-4" /> Create environment</Button>
       </form>
@@ -248,12 +233,11 @@ export function EnvironmentManager({ initialEnvironments, userEmails }: { initia
                     setCredentialsEditingId((current) => current === environment.id ? null : environment.id);
                     setEditingId(null);
                     setWabaEditingId(null);
-                    setCredentialForm({ apiKey: "", apiSecret: "", applicationId: "", privateKeyFile: "" });
-                    setCredentialKeyFileName("");
+                    setCredentialForm({ apiKey: "", apiSecret: "", vcrCredentialName: "" });
                     setMessage("");
                   }}
                 >
-                  <FileKey className="h-4 w-4" />
+                  <KeyRound className="h-4 w-4" />
                   Update credentials
                 </Button>
                 <Button variant="ghost" size="icon" onClick={() => void archive(environment.id)} aria-label={`Archive ${environment.name}`} title="Archive environment"><Archive className="h-4 w-4" /></Button>
@@ -328,27 +312,10 @@ export function EnvironmentManager({ initialEnvironments, userEmails }: { initia
                   <Input
                     type="password"
                     autoComplete="new-password"
-                    placeholder="Application ID (optional)"
-                    value={credentialForm.applicationId}
-                    onChange={(event) => setCredentialForm({ ...credentialForm, applicationId: event.target.value })}
+                    placeholder="VCR credential name, e.g. 00D...-CERT"
+                    value={credentialForm.vcrCredentialName}
+                    onChange={(event) => setCredentialForm({ ...credentialForm, vcrCredentialName: event.target.value })}
                   />
-                  <label className="flex min-h-24 cursor-pointer flex-col items-center justify-center gap-2 rounded-md border border-dashed bg-white p-4 text-center">
-                    <FileKey className="h-5 w-5" />
-                    <span className="text-sm font-medium">{credentialKeyFileName || "Select private key file (optional)"}</span>
-                    <span className="text-xs text-muted-foreground">Vonage .key or .pem file for JWT-only actions</span>
-                    <input
-                      className="sr-only"
-                      type="file"
-                      accept=".key,.pem,application/x-pem-file"
-                      onChange={async (event) => {
-                        const file = event.target.files?.[0];
-                        if (!file) return;
-                        const privateKeyFile = await file.text();
-                        setCredentialKeyFileName(file.name);
-                        setCredentialForm((current) => ({ ...current, privateKeyFile }));
-                      }}
-                    />
-                  </label>
                 </div>
                 <div className="flex justify-end gap-2">
                   <Button type="button" variant="ghost" onClick={() => setCredentialsEditingId(null)}>

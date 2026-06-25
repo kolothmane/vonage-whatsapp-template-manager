@@ -15,6 +15,7 @@ const environmentRows = [
   ["AUTH_GOOGLE_SECRET", maskSecret(process.env.AUTH_GOOGLE_SECRET)],
   ["ADMIN_EMAILS", process.env.ADMIN_EMAILS ? "configured" : "not configured"],
   ["CREDENTIALS_ENCRYPTION_KEY", process.env.CREDENTIALS_ENCRYPTION_KEY ? "configured" : "not configured"],
+  ["VONAGE_VCR_CREDENTIAL_NAME", process.env.VONAGE_VCR_CREDENTIAL_NAME ? "configured" : "not configured"],
   ["KV_REST_API_URL", process.env.KV_REST_API_URL ? "configured" : "not configured"],
   ["KV_REST_API_TOKEN", process.env.KV_REST_API_TOKEN ? "configured" : "not configured"],
 ];

@@ -15,15 +15,17 @@ export type EnvironmentRecord = {
   apiSecret: string;
   applicationId: string;
   privateKey: string;
+  vcrCredentialName?: string;
   userEmails: string[];
   archivedAt?: string;
   createdAt: string;
   createdBy: string;
 };
 
-export type SafeEnvironment = Omit<EnvironmentRecord, "apiKey" | "apiSecret" | "applicationId" | "privateKey"> & {
+export type SafeEnvironment = Omit<EnvironmentRecord, "apiKey" | "apiSecret" | "applicationId" | "privateKey" | "vcrCredentialName"> & {
   credentialsConfigured: true;
   manualWabaIds: string[];
+  vcrCredentialConfigured: boolean;
 };
 
 function envBackedAdmins() {
@@ -57,6 +59,7 @@ async function withEnvBackedEnvironments(environments: EnvironmentRecord[]) {
     apiSecret: encryptSecret(puigApiSecret),
     applicationId: encryptSecret(""),
     privateKey: encryptSecret(""),
+    vcrCredentialName: encryptSecret(""),
     userEmails: admins,
     createdAt: new Date().toISOString(),
     createdBy,
@@ -69,6 +72,10 @@ async function withEnvBackedEnvironments(environments: EnvironmentRecord[]) {
 async function allEnvironments() {
   const environments = (await getKv().get<EnvironmentRecord[]>(ENVIRONMENTS_KEY)) ?? [];
   return withEnvBackedEnvironments(environments);
+}
+
+function decryptOptionalSecret(value: string | undefined) {
+  return value ? decryptSecret(value) : "";
 }
 
 export async function listEnvironmentsForUser(email: string) {
@@ -84,6 +91,7 @@ export async function listEnvironmentsForUser(email: string) {
       createdAt: environment.createdAt,
       createdBy: environment.createdBy,
       credentialsConfigured: true as const,
+      vcrCredentialConfigured: Boolean(decryptOptionalSecret(environment.vcrCredentialName)),
       manualWabaIds:
         (await getKv().get<string[]>(environmentKey(environment.id, "manual-waba-ids"))) ?? [],
     })));
@@ -96,7 +104,7 @@ export async function getActiveEnvironmentIdForUser(email: string) {
 }
 
 export async function createEnvironment(input: {
-  name: string; apiKey: string; apiSecret: string; applicationId?: string; privateKey?: string; createdBy: string;
+  name: string; apiKey: string; apiSecret: string; applicationId?: string; privateKey?: string; vcrCredentialName?: string; createdBy: string;
 }) {
   const environments = await allEnvironments();
   const environment: EnvironmentRecord = {
@@ -106,6 +114,7 @@ export async function createEnvironment(input: {
     apiSecret: encryptSecret(input.apiSecret.trim()),
     applicationId: encryptSecret(input.applicationId?.trim() ?? ""),
     privateKey: encryptSecret(input.privateKey?.trim() ?? ""),
+    vcrCredentialName: encryptSecret(input.vcrCredentialName?.trim() ?? ""),
     userEmails: [normalizeEmail(input.createdBy)],
     createdAt: new Date().toISOString(),
     createdBy: normalizeEmail(input.createdBy),
@@ -140,7 +149,7 @@ export async function renameEnvironment(id: string, name: string) {
 
 export async function updateEnvironmentCredentials(
   id: string,
-  input: { apiKey: string; apiSecret: string; applicationId?: string; privateKey?: string },
+  input: { apiKey: string; apiSecret: string; applicationId?: string; privateKey?: string; vcrCredentialName?: string },
 ) {
   const environments = await allEnvironments();
   const environment = environments.find((item) => item.id === id && !item.archivedAt);
@@ -149,6 +158,7 @@ export async function updateEnvironmentCredentials(
   environment.apiSecret = encryptSecret(input.apiSecret.trim());
   environment.applicationId = encryptSecret(input.applicationId?.trim() ?? "");
   environment.privateKey = encryptSecret(input.privateKey?.trim() ?? "");
+  environment.vcrCredentialName = encryptSecret(input.vcrCredentialName?.trim() ?? "");
   await getKv().set(ENVIRONMENTS_KEY, environments);
 }
 
@@ -181,6 +191,7 @@ export async function getActiveEnvironment() {
     apiSecret: decryptSecret(environment.apiSecret),
     applicationId: decryptSecret(environment.applicationId),
     privateKey: decryptSecret(environment.privateKey),
+    vcrCredentialName: decryptOptionalSecret(environment.vcrCredentialName),
   };
 }
 
