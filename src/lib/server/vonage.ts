@@ -332,18 +332,6 @@ async function fetchTemplateCount(wabaId: string, authorizations: string[]) {
   return null;
 }
 
-function deriveWabaName(verifiedNames: string[], wabaId: string) {
-  const uniqueNames = [...new Set(verifiedNames.map((name) => name.trim()).filter(Boolean))];
-  if (uniqueNames.length <= 1) return uniqueNames[0] ?? `WABA ${wabaId}`;
-  const tokenized = uniqueNames.map((name) => name.split(/\s+/).filter((token) => token !== "-"));
-  const commonTokens: string[] = [];
-  for (const [index, token] of tokenized[0].entries()) {
-    if (!tokenized.every((tokens) => tokens[index]?.toLowerCase() === token.toLowerCase())) break;
-    commonTokens.push(token);
-  }
-  return commonTokens.length >= 2 ? commonTokens.join(" ") : uniqueNames[0];
-}
-
 function manualWabaName(brand: string | undefined, country: string | undefined, wabaId: string) {
   return [brand, country].filter(Boolean).join(" ") || `WABA ${wabaId}`;
 }
