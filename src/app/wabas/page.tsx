@@ -41,8 +41,10 @@ export default async function WabasPage() {
                   </TableHead>
                   <TableHead>Name</TableHead>
                   <TableHead>WABA ID</TableHead>
+                  <TableHead>Brand</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Country</TableHead>
+                  <TableHead>Language Priority</TableHead>
                   <TableHead>Template Count</TableHead>
                   <TableHead>Last Sync</TableHead>
                   <TableHead>Catalog</TableHead>
@@ -56,10 +58,12 @@ export default async function WabasPage() {
                     </TableCell>
                     <TableCell className="font-medium">{waba.name}</TableCell>
                     <TableCell className="font-mono text-xs text-muted-foreground">{waba.id}</TableCell>
+                    <TableCell>{waba.brand ?? "Unknown"}</TableCell>
                     <TableCell>
                       <StatusBadge status={waba.status} />
                     </TableCell>
                     <TableCell>{waba.country}</TableCell>
+                    <TableCell>{waba.languagePriority ?? "Unknown"}</TableCell>
                     <TableCell className="font-mono">{formatNumber(waba.templateCount)}</TableCell>
                     <TableCell>{formatDateTime(waba.lastSyncAt)}</TableCell>
                     <TableCell>

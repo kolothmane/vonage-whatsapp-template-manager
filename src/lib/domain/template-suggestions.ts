@@ -21,12 +21,14 @@ function tokens(value: string) {
   );
 }
 
-export function suggestTemplatesForWaba(waba: Pick<Waba, "id" | "name">, templates: TemplateRecord[]) {
+export function suggestTemplatesForWaba(waba: Pick<Waba, "id" | "name" | "brand" | "languagePriority">, templates: TemplateRecord[]) {
   const wabaTokens = tokens(`${waba.name} ${waba.id}`);
-  const brands = SUPPORTED_BRANDS.filter((brand) => wabaTokens.has(brand));
-  const languages = SUPPORTED_LANGUAGES.filter((language) =>
-    LANGUAGE_NAMES[language].some((name) => wabaTokens.has(name)),
-  );
+  const brands = waba.brand ? [waba.brand] : SUPPORTED_BRANDS.filter((brand) => wabaTokens.has(brand));
+  const languages = waba.languagePriority
+    ? [waba.languagePriority]
+    : SUPPORTED_LANGUAGES.filter((language) =>
+        LANGUAGE_NAMES[language].some((name) => wabaTokens.has(name)),
+      );
 
   return templates.filter((template) => {
     const brandMatches = brands.length === 0 || brands.includes(template.brand);

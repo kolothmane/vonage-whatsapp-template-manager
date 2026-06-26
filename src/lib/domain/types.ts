@@ -5,6 +5,7 @@ export const SUPPORTED_BRANDS = [
   "CH",
   "CLB",
   "DBS",
+  "DVN",
   "JPG",
   "KA",
   "LAP",
@@ -48,6 +49,8 @@ export type Waba = {
   name: string;
   status: "Connected" | "Syncing" | "Action Required";
   country: string;
+  brand?: SupportedBrand;
+  languagePriority?: SupportedLanguage;
   templateCount: number;
   lastSyncAt: string;
 };

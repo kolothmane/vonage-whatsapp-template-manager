@@ -1,7 +1,7 @@
 import type { VonageTemplatePayload, Waba } from "@/lib/domain/types";
 import { getKv, hasKvConfig } from "@/lib/server/kv";
 import { ensureVonageTrailingParamMarker } from "@/lib/domain/payload";
-import { environmentKey, getActiveEnvironment } from "@/lib/server/environments";
+import { environmentKey, getActiveEnvironment, getEnvironmentManualWabas } from "@/lib/server/environments";
 
 
 export type VonageConfig = {
@@ -344,15 +344,18 @@ function deriveWabaName(verifiedNames: string[], wabaId: string) {
   return commonTokens.length >= 2 ? commonTokens.join(" ") : uniqueNames[0];
 }
 
+function manualWabaName(brand: string | undefined, country: string | undefined, wabaId: string) {
+  return [brand, country].filter(Boolean).join(" ") || `WABA ${wabaId}`;
+}
+
 async function fetchVerifiedManualWabas(config: VonageConfig): Promise<Waba[]> {
   if (!hasKvConfig()) {
     return [];
   }
 
   const environment = await getActiveEnvironment();
-  const wabaIds =
-    (await getKv().get<string[]>(environmentKey(environment.id, "manual-waba-ids"))) ?? [];
-  if (wabaIds.length === 0) {
+  const manualWabas = await getEnvironmentManualWabas(environment.id);
+  if (manualWabas.length === 0) {
     return [];
   }
 
@@ -369,7 +372,8 @@ async function fetchVerifiedManualWabas(config: VonageConfig): Promise<Waba[]> {
     basicAuthorization,
   ];
   const verified: Array<Waba | null> = await Promise.all(
-    wabaIds.map(async (wabaId) => {
+    manualWabas.map(async (manualWaba) => {
+      const wabaId = manualWaba.id;
       const [details, numbers, templateCount] = await Promise.all([
         fetchManualWabaDetails(wabaId, channelAuthorizations),
         fetchWabaNumbers(wabaId, channelAuthorizations),
@@ -390,10 +394,7 @@ async function fetchVerifiedManualWabas(config: VonageConfig): Promise<Waba[]> {
         name: String(
           details?.name ??
           details?.business_name ??
-          deriveWabaName(
-            matchingNumbers.map((number) => String(number.verified_name ?? "")),
-            wabaId,
-          )
+          manualWabaName(manualWaba.brand, manualWaba.country, wabaId)
         ),
         status:
           !details ||
@@ -402,7 +403,9 @@ async function fetchVerifiedManualWabas(config: VonageConfig): Promise<Waba[]> {
           details.account_review_status === "Approved"
             ? "Connected" as const
             : "Action Required" as const,
-        country: String(details?.country ?? "Unknown"),
+        country: String(details?.country ?? manualWaba.country ?? "Unknown"),
+        brand: manualWaba.brand,
+        languagePriority: manualWaba.languagePriority,
         templateCount: Number(
           details?.template_count ??
           details?.templates_count ??
@@ -457,6 +460,8 @@ export async function fetchVonageWabas(): Promise<Waba[]> {
         ? "Connected"
         : "Action Required",
     country: String(waba.country ?? "Unknown"),
+    brand: typeof waba.brand === "string" ? waba.brand as Waba["brand"] : undefined,
+    languagePriority: typeof waba.languagePriority === "string" ? waba.languagePriority as Waba["languagePriority"] : undefined,
     templateCount: Number(waba.template_count ?? waba.templates_count ?? 0),
     lastSyncAt: new Date().toISOString(),
   };

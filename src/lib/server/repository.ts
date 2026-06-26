@@ -11,7 +11,7 @@ import type {
 } from "@/lib/domain/types";
 import { getPrisma, hasDatabaseUrl } from "./db";
 import { getKv, hasKvConfig } from "./kv";
-import { environmentKey, getActiveEnvironment } from "./environments";
+import { environmentKey, getActiveEnvironment, getEnvironmentManualWabas } from "./environments";
 
 async function kvKeys() {
   const environment = await getActiveEnvironment();
@@ -62,8 +62,25 @@ export async function listWabas(): Promise<Waba[]> {
   if (!hasDatabaseUrl()) {
     const keys = await kvKeysForRead();
     if (!keys) return [];
+    const environment = await getActiveEnvironment();
     const wabas = await readKvCollection<Waba>(keys.wabas);
-    return wabas.sort((a, b) => a.name.localeCompare(b.name));
+    const wabasById = new Map(wabas.map((waba) => [waba.id, waba]));
+    const manualWabas = await getEnvironmentManualWabas(environment.id);
+    for (const manualWaba of manualWabas) {
+      const existing = wabasById.get(manualWaba.id);
+      const manualName = [manualWaba.brand, manualWaba.country].filter(Boolean).join(" ") || `WABA ${manualWaba.id}`;
+      wabasById.set(manualWaba.id, {
+        id: manualWaba.id,
+        name: existing?.name ?? manualName,
+        status: existing?.status ?? "Action Required",
+        country: existing?.country && existing.country !== "Unknown" ? existing.country : manualWaba.country ?? "Unknown",
+        brand: manualWaba.brand ?? existing?.brand,
+        languagePriority: manualWaba.languagePriority ?? existing?.languagePriority,
+        templateCount: existing?.templateCount ?? 0,
+        lastSyncAt: existing?.lastSyncAt ?? new Date().toISOString(),
+      });
+    }
+    return [...wabasById.values()].sort((a, b) => a.name.localeCompare(b.name));
   }
 
   const prisma = getPrisma();
