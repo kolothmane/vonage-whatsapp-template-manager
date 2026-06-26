@@ -14,6 +14,9 @@ export type VonageConfig = {
   environmentName?: string;
 };
 
+const VCR_TOKEN_REFRESH_AFTER_SECONDS = 115 * 60;
+const VCR_TOKEN_EXPIRY_SAFETY_SECONDS = 5 * 60;
+
 async function getVonageConfig(): Promise<VonageConfig> {
   const environment = await getActiveEnvironment();
   const envBackedVcrCredential =
@@ -62,7 +65,28 @@ function extractVcrToken(body: Record<string, unknown>) {
   return "";
 }
 
-async function vcrAuthorizationHeader(config: VonageConfig) {
+function vcrTokenCacheKey(config: VonageConfig, credentialName: string) {
+  return config.environmentId
+    ? environmentKey(config.environmentId, `vcr-token:${credentialName}`)
+    : "";
+}
+
+async function clearCachedVcrToken(config: VonageConfig) {
+  if (!config.vcrCredentialName || !hasKvConfig()) return;
+  const credentialName = normalizeVcrCredentialName(config.vcrCredentialName);
+  const cacheKey = vcrTokenCacheKey(config, credentialName);
+  if (cacheKey) {
+    await getKv().del(cacheKey);
+  }
+}
+
+function isInvalidTokenResponse(response: Response, body: unknown) {
+  if (response.status !== 401) return false;
+  const serialized = typeof body === "string" ? body : JSON.stringify(body);
+  return /invalid token/i.test(serialized);
+}
+
+async function vcrAuthorizationHeader(config: VonageConfig, options?: { forceRefresh?: boolean }) {
   if (!config.apiKey || !config.apiSecret || !config.vcrCredentialName) {
     throw new Error(
       "API key, API secret and VCR credential name are required for template management.",
@@ -70,12 +94,10 @@ async function vcrAuthorizationHeader(config: VonageConfig) {
   }
 
   const credentialName = normalizeVcrCredentialName(config.vcrCredentialName);
-  const cacheKey = config.environmentId
-    ? environmentKey(config.environmentId, `vcr-token:${credentialName}`)
-    : "";
-  if (cacheKey && hasKvConfig()) {
+  const cacheKey = vcrTokenCacheKey(config, credentialName);
+  if (!options?.forceRefresh && cacheKey && hasKvConfig()) {
     const cached = await getKv().get<{ token: string; expiresAt: string }>(cacheKey);
-    if (cached?.token && Date.parse(cached.expiresAt) - Date.now() > 5 * 60 * 1000) {
+    if (cached?.token && Date.parse(cached.expiresAt) > Date.now()) {
       return `Bearer ${cached.token}`;
     }
   }
@@ -104,13 +126,53 @@ async function vcrAuthorizationHeader(config: VonageConfig) {
     );
   }
   const ttlSeconds = Number(body.ttl ?? 7200);
+  const usableTtlSeconds = Math.max(
+    60,
+    Math.min(ttlSeconds - VCR_TOKEN_EXPIRY_SAFETY_SECONDS, VCR_TOKEN_REFRESH_AFTER_SECONDS),
+  );
   if (cacheKey && hasKvConfig()) {
     await getKv().set(cacheKey, {
       token,
-      expiresAt: new Date(Date.now() + Math.max(60, ttlSeconds) * 1000).toISOString(),
+      expiresAt: new Date(Date.now() + usableTtlSeconds * 1000).toISOString(),
     });
   }
   return `Bearer ${token}`;
+}
+
+async function fetchWithVcrAuthorization(
+  config: VonageConfig,
+  input: string | URL,
+  init: RequestInit = {},
+) {
+  let authorization = await vcrAuthorizationHeader(config);
+  const headers = new Headers(init.headers);
+  headers.set("Authorization", authorization);
+  let response = await fetch(input, {
+    ...init,
+    headers,
+    cache: "no-store",
+  });
+
+  const cloned = response.clone();
+  const body = await cloned.json().catch(async () => cloned.text().catch(() => ""));
+  if (!isInvalidTokenResponse(response, body)) {
+    return { response, body };
+  }
+
+  await clearCachedVcrToken(config);
+  authorization = await vcrAuthorizationHeader(config, { forceRefresh: true });
+  const retryHeaders = new Headers(init.headers);
+  retryHeaders.set("Authorization", authorization);
+  response = await fetch(input, {
+    ...init,
+    headers: retryHeaders,
+    cache: "no-store",
+  });
+  const retryClone = response.clone();
+  return {
+    response,
+    body: await retryClone.json().catch(async () => retryClone.text().catch(() => "")),
+  };
 }
 
 type VonageWabaResponse = {
@@ -402,17 +464,14 @@ export async function fetchVonageWabas(): Promise<Waba[]> {
 }
 
 export async function createVonageTemplateForConfig(config: VonageConfig, wabaId: string, payload: VonageTemplatePayload) {
-  const response = await fetch(`https://api.nexmo.com/v2/whatsapp-manager/wabas/${wabaId}/templates`, {
+  const { response, body } = await fetchWithVcrAuthorization(config, `https://api.nexmo.com/v2/whatsapp-manager/wabas/${wabaId}/templates`, {
     method: "POST",
     headers: {
-      Authorization: await vcrAuthorizationHeader(config),
       "Content-Type": "application/json",
     },
     body: JSON.stringify(payload),
-    cache: "no-store",
   });
 
-  const body = await response.json().catch(() => ({}));
   if (!response.ok) {
     throw new Error(`Vonage template creation failed with ${response.status}: ${JSON.stringify(body)}`);
   }
@@ -436,17 +495,15 @@ export type VonageExistingTemplate = {
 
 export async function listVonageTemplates(wabaId: string): Promise<VonageExistingTemplate[]> {
   const config = await getVonageConfig();
-  const authorization = await vcrAuthorizationHeader(config);
   let url: string | null =
     `https://api.nexmo.com/v2/whatsapp-manager/wabas/${encodeURIComponent(wabaId)}/templates?limit=500`;
   const templates: VonageExistingTemplate[] = [];
 
   while (url) {
-    const response = await fetch(url, {
-      headers: { Authorization: authorization, Accept: "application/json" },
-      cache: "no-store",
+    const { response, body } = await fetchWithVcrAuthorization(config, url, {
+      headers: { Accept: "application/json" },
     });
-    const data = (await response.json().catch(() => ({}))) as {
+    const data = (typeof body === "object" && body ? body : {}) as {
       templates?: Array<Record<string, unknown>>;
       paging?: { next?: string };
       detail?: string;
@@ -491,12 +548,12 @@ export async function updateVonageTemplate(
       ? { ...component, text: ensureVonageTrailingParamMarker(changes.body) }
       : component,
   );
-  const response = await fetch(
+  const { response, body } = await fetchWithVcrAuthorization(
+    config,
     `https://api.nexmo.com/v2/whatsapp-manager/wabas/${encodeURIComponent(wabaId)}/templates/${encodeURIComponent(templateId)}`,
     {
       method: "PUT",
       headers: {
-        Authorization: await vcrAuthorizationHeader(config),
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
@@ -505,11 +562,9 @@ export async function updateVonageTemplate(
         category: changes.category,
         components,
       }),
-      cache: "no-store",
     },
   );
   if (!response.ok) {
-    const body = await response.json().catch(() => ({}));
     throw new Error(`Vonage template update failed with ${response.status}: ${JSON.stringify(body)}`);
   }
 }
