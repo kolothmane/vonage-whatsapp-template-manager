@@ -411,10 +411,19 @@ async function fetchVerifiedManualWabas(config: VonageConfig): Promise<Waba[]> {
 export async function fetchVonageWabas(): Promise<Waba[]> {
   const config = await getVonageConfig();
   const credentialLabel = `"${config.environmentName ?? "Unknown environment"}" using API key ending in ${config.apiKey?.slice(-4) ?? "n/a"}`;
-  const basicResult = await fetchAllVonageWabaPages(
-    basicAuthorizationHeader(config),
-    credentialLabel,
-  );
+  let basicResult: Awaited<ReturnType<typeof fetchAllVonageWabaPages>> | null = null;
+  try {
+    basicResult = await fetchAllVonageWabaPages(
+      basicAuthorizationHeader(config),
+      credentialLabel,
+    );
+  } catch (error) {
+    const manualWabas = await fetchVerifiedManualWabas(config);
+    if (manualWabas.length > 0) {
+      return manualWabas;
+    }
+    throw error;
+  }
   const selectedResult = basicResult;
 
   if (selectedResult.rawWabas.length === 0) {
@@ -426,11 +435,11 @@ export async function fetchVonageWabas(): Promise<Waba[]> {
 
   if (selectedResult.rawWabas.length === 0) {
     const accountLabel = `Vonage account API key ending in ${config.apiKey!.slice(-4)}`;
-    const requestId = basicResult.firstPage.requestId
+    const requestId = basicResult?.firstPage.requestId
       ? ` Request ID: ${basicResult.firstPage.requestId}.`
       : "";
     throw new Error(
-      `Vonage authenticated the request but returned no WABAs for the ${accountLabel}. Basic total_items: ${basicResult.totalItems}.${requestId}`,
+      `Vonage authenticated the request but returned no WABAs for the ${accountLabel}. Basic total_items: ${basicResult?.totalItems ?? 0}.${requestId}`,
     );
   }
 
