@@ -160,11 +160,15 @@ export function validateImportRows(
     }
 
     for (const wabaId of targetWabaIds) {
+      if (wabaId === "catalog") {
+        continue;
+      }
+
       const duplicate = existingTemplates.find(
         (template) =>
           template.brand === brand &&
           template.generatedName === generatedName &&
-          (wabaId === "catalog" ? !template.wabaId : template.wabaId === wabaId),
+          template.wabaId === wabaId,
       );
       const batchKey = `${wabaId}:${brand}:${generatedName}`;
 
