@@ -13,7 +13,7 @@ export default auth((request) => {
     return NextResponse.redirect(new URL("/", request.nextUrl));
   }
 
-  if (isLoginPage || pathname.startsWith("/api/auth")) {
+  if (isLoginPage || pathname.startsWith("/api/auth") || pathname.startsWith("/api/cron")) {
     return NextResponse.next();
   }
 
