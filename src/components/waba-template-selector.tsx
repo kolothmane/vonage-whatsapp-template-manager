@@ -24,7 +24,7 @@ export function WabaTemplateSelector({ waba, templates }: { waba: Waba; template
   const [selected, setSelected] = useState<string[]>(() => suggestions.map((template) => template.id));
   const [brandFilter, setBrandFilter] = useState("ALL");
   const [languageFilter, setLanguageFilter] = useState("ALL");
-  const [state, setState] = useState<"idle" | "submitting" | "done" | "error">("idle");
+  const [state, setState] = useState<"idle" | "planning" | "done" | "error">("idle");
   const [message, setMessage] = useState("");
   const brands = useMemo(() => [...new Set(catalogTemplates.map((template) => template.brand))].sort(), [catalogTemplates]);
   const languages = useMemo(() => [...new Set(catalogTemplates.map((template) => template.language))].sort(), [catalogTemplates]);
@@ -43,7 +43,7 @@ export function WabaTemplateSelector({ waba, templates }: { waba: Waba; template
   }
 
   async function submit() {
-    setState("submitting");
+    setState("planning");
     setMessage("");
     try {
       const response = await fetch(`/api/wabas/${encodeURIComponent(waba.id)}/templates`, {
@@ -51,16 +51,16 @@ export function WabaTemplateSelector({ waba, templates }: { waba: Waba; template
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ templateIds: selected }),
       });
-      const result = (await response.json()) as { data?: { submitted?: number }; message?: string };
+      const result = (await response.json()) as { data?: { planned?: number; deployment?: { id: string } }; message?: string };
       if (!response.ok) {
-        throw new Error(result.message || "Unable to submit templates.");
+        throw new Error(result.message || "Unable to create deployment plan.");
       }
       setState("done");
-      setMessage(`${result.data?.submitted ?? 0} template(s) submitted to this WABA.`);
+      setMessage(`${result.data?.planned ?? 0} template(s) added to a draft deployment plan.`);
       setSelected([]);
     } catch (error) {
       setState("error");
-      setMessage(error instanceof Error ? error.message : "Unable to submit templates.");
+      setMessage(error instanceof Error ? error.message : "Unable to create deployment plan.");
     }
   }
 
@@ -76,9 +76,9 @@ export function WabaTemplateSelector({ waba, templates }: { waba: Waba; template
             <RefreshCw className="h-4 w-4" />
             Restore suggestions
           </Button>
-          <Button disabled={!selected.length || state === "submitting"} onClick={() => void submit()}>
+          <Button disabled={!selected.length || state === "planning"} onClick={() => void submit()}>
             <Send className="h-4 w-4" />
-            {state === "submitting" ? "Submitting..." : "Submit to WABA"}
+            {state === "planning" ? "Planning..." : "Add to deployment plan"}
           </Button>
         </div>
       </div>

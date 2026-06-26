@@ -2,7 +2,10 @@ import type {
   AuditLogRecord,
   ImportRecord,
   LogRecord,
+  MassDeploymentItem,
+  MassDeploymentRecord,
   NormalizedTemplate,
+  SubmissionErrorRecord,
   TemplateRecord,
   Waba,
 } from "@/lib/domain/types";
@@ -18,6 +21,9 @@ async function kvKeys() {
     imports: environmentKey(environment.id, "imports"),
     logs: environmentKey(environment.id, "logs"),
     auditLogs: environmentKey(environment.id, "audit-logs"),
+    massDeployments: environmentKey(environment.id, "mass-deployments"),
+    massDeploymentItems: environmentKey(environment.id, "mass-deployment-items"),
+    submissionErrors: environmentKey(environment.id, "submission-errors"),
   };
 }
 
@@ -347,6 +353,186 @@ export async function saveWabaAssignments(wabaId: string, sourceTemplates: Templ
 
   await getKv().set(keys.templates, [...assignments, ...existingTemplates]);
   return assignments;
+}
+
+function summarizeDeployment(
+  deployment: MassDeploymentRecord,
+  items: MassDeploymentItem[],
+): MassDeploymentRecord {
+  const related = items.filter((item) => item.deploymentId === deployment.id);
+  const queued = related.filter((item) => item.status === "Queued").length;
+  const submitted = related.filter((item) => item.status === "Submitted").length;
+  const failed = related.filter((item) => item.status === "Failed").length;
+  const skipped = related.filter((item) => item.status === "Skipped").length;
+  const done = queued === 0;
+  return {
+    ...deployment,
+    total: related.length,
+    queued,
+    submitted,
+    failed,
+    skipped,
+    status: done
+      ? failed > 0
+        ? "Failed"
+        : "Completed"
+      : deployment.status,
+    completedAt: done ? deployment.completedAt ?? new Date().toISOString() : deployment.completedAt,
+  };
+}
+
+export async function listMassDeployments(): Promise<MassDeploymentRecord[]> {
+  if (!hasKvConfig() || hasDatabaseUrl()) return [];
+  const keys = await kvKeysForRead();
+  if (!keys) return [];
+  const [deployments, items] = await Promise.all([
+    readKvCollection<MassDeploymentRecord>(keys.massDeployments),
+    readKvCollection<MassDeploymentItem>(keys.massDeploymentItems),
+  ]);
+  return deployments
+    .map((deployment) => summarizeDeployment(deployment, items))
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+}
+
+export async function listMassDeploymentItems(deploymentId?: string): Promise<MassDeploymentItem[]> {
+  if (!hasKvConfig() || hasDatabaseUrl()) return [];
+  const keys = await kvKeysForRead();
+  if (!keys) return [];
+  const items = await readKvCollection<MassDeploymentItem>(keys.massDeploymentItems);
+  return (deploymentId ? items.filter((item) => item.deploymentId === deploymentId) : items)
+    .sort((a, b) => a.templateName.localeCompare(b.templateName));
+}
+
+export async function listSubmissionErrors(): Promise<SubmissionErrorRecord[]> {
+  if (!hasKvConfig() || hasDatabaseUrl()) return [];
+  const keys = await kvKeysForRead();
+  if (!keys) return [];
+  const errors = await readKvCollection<SubmissionErrorRecord>(keys.submissionErrors);
+  return errors.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+}
+
+export async function createMassDeploymentPlan(params: {
+  name: string;
+  wabaTemplateIds: Record<string, string[]>;
+  batchSize?: number;
+  actor?: { name?: string | null; email?: string | null };
+}) {
+  if (!hasKvConfig() || hasDatabaseUrl()) {
+    throw new Error("Mass deployment planning currently requires the configured Upstash KV backend.");
+  }
+
+  const keys = await kvKeys();
+  const now = new Date().toISOString();
+  const [deployments, items, templates, wabas] = await Promise.all([
+    readKvCollection<MassDeploymentRecord>(keys.massDeployments),
+    readKvCollection<MassDeploymentItem>(keys.massDeploymentItems),
+    readKvCollection<TemplateRecord>(keys.templates),
+    listWabas(),
+  ]);
+  const catalogById = new Map(templates.filter((template) => !template.wabaId).map((template) => [template.id, template]));
+  const wabaById = new Map(wabas.map((waba) => [waba.id, waba]));
+  const deploymentId = crypto.randomUUID();
+  const batchSize = Math.max(1, Math.min(100, params.batchSize ?? 100));
+  const plannedItems: MassDeploymentItem[] = [];
+
+  for (const [wabaId, templateIds] of Object.entries(params.wabaTemplateIds)) {
+    const waba = wabaById.get(wabaId);
+    for (const templateId of [...new Set(templateIds)]) {
+      const template = catalogById.get(templateId);
+      if (!template) continue;
+      plannedItems.push({
+        id: crypto.randomUUID(),
+        deploymentId,
+        templateId: crypto.randomUUID(),
+        sourceTemplateId: template.id,
+        wabaId,
+        wabaName: waba?.name ?? wabaId,
+        templateName: template.generatedName,
+        brand: template.brand,
+        language: template.language,
+        status: "Queued",
+        attempts: 0,
+      });
+    }
+  }
+
+  if (!plannedItems.length) {
+    throw new Error("No valid WABA/template assignments were selected.");
+  }
+
+  const deployment: MassDeploymentRecord = {
+    id: deploymentId,
+    name: params.name.trim() || `Mass deployment ${now}`,
+    status: "Draft",
+    batchSize,
+    total: plannedItems.length,
+    queued: plannedItems.length,
+    submitted: 0,
+    failed: 0,
+    skipped: 0,
+    createdAt: now,
+    updatedAt: now,
+    createdByName: params.actor?.name ?? undefined,
+    createdByEmail: params.actor?.email ?? undefined,
+  };
+
+  await Promise.all([
+    getKv().set(keys.massDeployments, [deployment, ...deployments]),
+    getKv().set(keys.massDeploymentItems, [...plannedItems, ...items]),
+  ]);
+  return { deployment, items: plannedItems };
+}
+
+export async function startMassDeployment(id: string) {
+  if (!hasKvConfig() || hasDatabaseUrl()) {
+    throw new Error("Mass deployment requires the configured Upstash KV backend.");
+  }
+  const keys = await kvKeys();
+  const deployments = await readKvCollection<MassDeploymentRecord>(keys.massDeployments);
+  const index = deployments.findIndex((deployment) => deployment.id === id);
+  if (index < 0) return null;
+  const now = new Date().toISOString();
+  deployments[index] = {
+    ...deployments[index],
+    status: "Running",
+    startedAt: deployments[index].startedAt ?? now,
+    updatedAt: now,
+  };
+  await getKv().set(keys.massDeployments, deployments);
+  return deployments[index];
+}
+
+export async function updateMassDeploymentProgress(params: {
+  deploymentId: string;
+  updates: MassDeploymentItem[];
+  errors: SubmissionErrorRecord[];
+}) {
+  if (!hasKvConfig() || hasDatabaseUrl()) return;
+  const keys = await kvKeys();
+  const [deployments, items, errors] = await Promise.all([
+    readKvCollection<MassDeploymentRecord>(keys.massDeployments),
+    readKvCollection<MassDeploymentItem>(keys.massDeploymentItems),
+    readKvCollection<SubmissionErrorRecord>(keys.submissionErrors),
+  ]);
+  const updateById = new Map(params.updates.map((item) => [item.id, item]));
+  const nextItems = items.map((item) => updateById.get(item.id) ?? item);
+  const deploymentIndex = deployments.findIndex((deployment) => deployment.id === params.deploymentId);
+  if (deploymentIndex >= 0) {
+    const summarized = summarizeDeployment(
+      {
+        ...deployments[deploymentIndex],
+        lastRunAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+      nextItems,
+    );
+    deployments[deploymentIndex] = summarized;
+  }
+  await Promise.all([
+    getKv().set(keys.massDeploymentItems, nextItems),
+    getKv().set(keys.massDeployments, deployments),
+    getKv().set(keys.submissionErrors, [...params.errors, ...errors]),
+  ]);
 }
 
 type LogActor = { name?: string | null; email?: string | null };

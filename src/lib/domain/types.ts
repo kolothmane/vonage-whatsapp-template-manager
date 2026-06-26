@@ -29,6 +29,8 @@ export const LANGUAGE_MAP = {
 export const TEMPLATE_CATEGORIES = ["MARKETING", "UTILITY", "AUTHENTICATION"] as const;
 export const ISSUE_SEVERITIES = ["INFO", "WARNING", "ERROR"] as const;
 export const IMPORT_STATUSES = ["Pending", "Submitted", "Approved", "Rejected", "Failed", "Skipped"] as const;
+export const MASS_DEPLOYMENT_STATUSES = ["Draft", "Running", "Completed", "Paused", "Failed"] as const;
+export const MASS_DEPLOYMENT_ITEM_STATUSES = ["Queued", "Submitted", "Failed", "Skipped"] as const;
 
 export type SupportedBrand = (typeof SUPPORTED_BRANDS)[number];
 export type SupportedLanguage = (typeof SUPPORTED_LANGUAGES)[number];
@@ -36,6 +38,8 @@ export type WhatsAppLanguage = (typeof LANGUAGE_MAP)[SupportedLanguage];
 export type TemplateCategory = (typeof TEMPLATE_CATEGORIES)[number];
 export type IssueSeverity = (typeof ISSUE_SEVERITIES)[number];
 export type ImportStatus = (typeof IMPORT_STATUSES)[number];
+export type MassDeploymentStatus = (typeof MASS_DEPLOYMENT_STATUSES)[number];
+export type MassDeploymentItemStatus = (typeof MASS_DEPLOYMENT_ITEM_STATUSES)[number];
 
 export type Role = "Admin" | "Operator" | "Viewer";
 
@@ -103,6 +107,61 @@ export type AuditLogRecord = {
   oldValue?: string;
   newValue?: string;
   date: string;
+};
+
+export type MassDeploymentItem = {
+  id: string;
+  deploymentId: string;
+  templateId: string;
+  sourceTemplateId: string;
+  wabaId: string;
+  wabaName: string;
+  templateName: string;
+  brand: SupportedBrand;
+  language: SupportedLanguage;
+  status: MassDeploymentItemStatus;
+  attempts: number;
+  lastAttemptAt?: string;
+  submittedAt?: string;
+  vonageTemplateId?: string;
+  errorMessage?: string;
+  errorCode?: string;
+};
+
+export type MassDeploymentRecord = {
+  id: string;
+  name: string;
+  status: MassDeploymentStatus;
+  batchSize: number;
+  total: number;
+  queued: number;
+  submitted: number;
+  failed: number;
+  skipped: number;
+  createdAt: string;
+  updatedAt: string;
+  startedAt?: string;
+  completedAt?: string;
+  createdByName?: string;
+  createdByEmail?: string;
+  lastRunAt?: string;
+};
+
+export type SubmissionErrorRecord = {
+  id: string;
+  deploymentId: string;
+  deploymentName: string;
+  itemId: string;
+  wabaId: string;
+  wabaName: string;
+  templateId: string;
+  templateName: string;
+  brand: SupportedBrand;
+  language: SupportedLanguage;
+  errorMessage: string;
+  errorCode?: string;
+  attempt: number;
+  timestamp: string;
 };
 
 export type ImportRow = {

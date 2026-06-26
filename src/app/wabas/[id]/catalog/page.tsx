@@ -17,7 +17,7 @@ export default async function WabaCatalogPage({ params }: { params: Promise<{ id
         <div><h1 className="text-2xl font-semibold">Add templates to {waba.name}</h1><p className="mt-1 font-mono text-xs text-muted-foreground">{waba.id}</p></div>
         <Link href={`/wabas/${encodeURIComponent(id)}`} className={buttonVariants({ variant: "outline" })}><ArrowLeft className="h-4 w-4" /> Existing templates</Link>
       </section>
-      <Card><CardHeader><CardTitle>Select catalog templates</CardTitle><CardDescription>Choose central catalog templates to submit to this WABA.</CardDescription></CardHeader><CardContent><WabaTemplateSelector waba={waba} templates={templates.filter((template) => !template.wabaId)} /></CardContent></Card>
+      <Card><CardHeader><CardTitle>Select catalog templates</CardTitle><CardDescription>Choose central catalog templates to add to a draft deployment plan for this WABA.</CardDescription></CardHeader><CardContent><WabaTemplateSelector waba={waba} templates={templates.filter((template) => !template.wabaId)} /></CardContent></Card>
     </div>
   );
 }

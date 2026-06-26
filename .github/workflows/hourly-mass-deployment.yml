@@ -1,0 +1,27 @@
+name: Hourly mass deployment
+
+on:
+  schedule:
+    - cron: "0 * * * *"
+  workflow_dispatch:
+
+jobs:
+  run-mass-deployment:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Process next template submission batch
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          MASS_DEPLOYMENT_ENVIRONMENT_ID: ${{ secrets.MASS_DEPLOYMENT_ENVIRONMENT_ID }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "CRON_SECRET is not configured."
+            exit 1
+          fi
+          if [ -z "$MASS_DEPLOYMENT_ENVIRONMENT_ID" ]; then
+            echo "MASS_DEPLOYMENT_ENVIRONMENT_ID is not configured."
+            exit 1
+          fi
+          curl -fsS \
+            -H "Authorization: Bearer ${CRON_SECRET}" \
+            "https://vonage-whatsapp-template-manager.vercel.app/api/cron/mass-deploy?environmentId=${MASS_DEPLOYMENT_ENVIRONMENT_ID}&limit=100"

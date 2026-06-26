@@ -195,6 +195,20 @@ export async function getActiveEnvironment() {
   };
 }
 
+export async function getEnvironmentConfigById(id: string) {
+  const environment = (await allEnvironments()).find((item) => item.id === id && !item.archivedAt);
+  if (!environment) throw new Error("Environment not found.");
+  return {
+    id: environment.id,
+    name: environment.name,
+    apiKey: decryptSecret(environment.apiKey),
+    apiSecret: decryptSecret(environment.apiSecret),
+    applicationId: decryptSecret(environment.applicationId),
+    privateKey: decryptSecret(environment.privateKey),
+    vcrCredentialName: decryptOptionalSecret(environment.vcrCredentialName),
+  };
+}
+
 export async function setActiveEnvironment(id: string) {
   const session = await auth();
   const email = session?.user?.email;

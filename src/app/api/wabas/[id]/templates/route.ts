@@ -1,25 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { auth } from "@/auth";
-import { generateVonagePayload } from "@/lib/domain/payload";
-import type { NormalizedTemplate, TemplateRecord } from "@/lib/domain/types";
-import { listTemplates, logWabaSubmissions, saveWabaAssignments } from "@/lib/server/repository";
-import { createVonageTemplate } from "@/lib/server/vonage";
-
-function toNormalized(template: TemplateRecord): NormalizedTemplate {
-  return {
-    rowNumber: 1,
-    brand: template.brand,
-    language: template.language,
-    whatsappLanguage: template.whatsappLanguage,
-    originalName: template.originalName,
-    generatedName: template.generatedName,
-    body: template.body,
-    normalizedBody: template.body,
-    category: template.category,
-    automation: template.automation,
-    variableMappings: template.variableMappings,
-  };
-}
+import { createMassDeploymentPlan, listTemplates } from "@/lib/server/repository";
 
 export async function POST(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   const session = await auth();
@@ -36,15 +17,16 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
   }
 
   try {
-    for (const template of templates) {
-      await createVonageTemplate(wabaId, generateVonagePayload(toNormalized(template)));
-    }
-    const assignments = await saveWabaAssignments(wabaId, templates);
-    await logWabaSubmissions(assignments, { name: session?.user?.name, email: session?.user?.email });
-    return NextResponse.json({ data: { submitted: assignments.length } }, { status: 201 });
+    const result = await createMassDeploymentPlan({
+      name: `Deployment for WABA ${wabaId}`,
+      wabaTemplateIds: { [wabaId]: body.templateIds },
+      batchSize: 100,
+      actor: { name: session?.user?.name, email: session?.user?.email },
+    });
+    return NextResponse.json({ data: { deployment: result.deployment, planned: result.items.length } }, { status: 201 });
   } catch (error) {
     return NextResponse.json(
-      { error: "WABA_SUBMISSION_FAILED", message: error instanceof Error ? error.message : "Unable to submit templates." },
+      { error: "WABA_DEPLOYMENT_PLAN_FAILED", message: error instanceof Error ? error.message : "Unable to create deployment plan." },
       { status: 503 },
     );
   }

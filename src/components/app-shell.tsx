@@ -9,6 +9,7 @@ import {
   LogOut,
   Menu,
   MessageSquareText,
+  Rocket,
   ScrollText,
   Settings,
   ShieldCheck,
@@ -35,6 +36,7 @@ const sections = [
     items: [
       { href: "/import", label: "Import Wizard", icon: Upload },
       { href: "/imports", label: "Imports", icon: FileClock },
+      { href: "/deployments", label: "Mass Deployments", icon: Rocket },
     ],
   },
   {

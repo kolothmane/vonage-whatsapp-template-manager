@@ -4,7 +4,7 @@ import { ensureVonageTrailingParamMarker } from "@/lib/domain/payload";
 import { environmentKey, getActiveEnvironment } from "@/lib/server/environments";
 
 
-type VonageConfig = {
+export type VonageConfig = {
   environmentId?: string;
   apiKey?: string;
   apiSecret?: string;
@@ -401,8 +401,7 @@ export async function fetchVonageWabas(): Promise<Waba[]> {
   });
 }
 
-export async function createVonageTemplate(wabaId: string, payload: VonageTemplatePayload) {
-  const config = await getVonageConfig();
+export async function createVonageTemplateForConfig(config: VonageConfig, wabaId: string, payload: VonageTemplatePayload) {
   const response = await fetch(`https://api.nexmo.com/v2/whatsapp-manager/wabas/${wabaId}/templates`, {
     method: "POST",
     headers: {
@@ -419,6 +418,10 @@ export async function createVonageTemplate(wabaId: string, payload: VonageTempla
   }
 
   return body;
+}
+
+export async function createVonageTemplate(wabaId: string, payload: VonageTemplatePayload) {
+  return createVonageTemplateForConfig(await getVonageConfig(), wabaId, payload);
 }
 
 export type VonageExistingTemplate = {
