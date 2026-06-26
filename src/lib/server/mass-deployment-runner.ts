@@ -34,6 +34,12 @@ function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Unknown submission error.";
 }
 
+function submissionErrorCode(message: string) {
+  return /already exists|duplicate|conflict|name.*taken|template.*exist/i.test(message)
+    ? "DUPLICATE_TEMPLATE"
+    : "VONAGE_SUBMISSION_FAILED";
+}
+
 function summarizeDeployment(deployment: MassDeploymentRecord, items: MassDeploymentItem[]) {
   const related = items.filter((item) => item.deploymentId === deployment.id);
   const queued = related.filter((item) => item.status === "Queued").length;
@@ -137,12 +143,13 @@ export async function runMassDeploymentBatch(environmentId: string, requestedLim
     } catch (error) {
       failed += 1;
       const message = errorMessage(error);
+      const code = submissionErrorCode(message);
       const update = {
         ...item,
         status: "Failed" as const,
         attempts: item.attempts + 1,
         lastAttemptAt: now,
-        errorCode: "VONAGE_SUBMISSION_FAILED",
+        errorCode: code,
         errorMessage: message,
       };
       updatedItems.set(item.id, update);
@@ -158,7 +165,7 @@ export async function runMassDeploymentBatch(environmentId: string, requestedLim
         brand: item.brand,
         language: item.language,
         errorMessage: message,
-        errorCode: "VONAGE_SUBMISSION_FAILED",
+        errorCode: code,
         attempt: update.attempts,
         timestamp: now,
       });
