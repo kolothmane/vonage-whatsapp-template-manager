@@ -35,6 +35,7 @@ export function MassDeploymentPlanner({
   });
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  const [templateQueries, setTemplateQueries] = useState<Record<string, string>>({});
 
   const plannedTotal = Object.values(selections).reduce((sum, ids) => sum + ids.length, 0);
   const cronUrl = activeEnvironmentId
@@ -58,6 +59,24 @@ export function MassDeploymentPlanner({
       ...current,
       [waba.id]: suggestTemplatesForWaba(waba, catalogTemplates).map((template) => template.id),
     }));
+  }
+
+  function wabaDisplayName(waba: Waba) {
+    const metadata = [waba.brand, waba.country !== "Unknown" ? waba.country : ""].filter(Boolean).join(" ");
+    if (!metadata) return waba.name;
+    return waba.name === metadata || waba.name.endsWith(` ${metadata}`) ? waba.name : `${waba.name} ${metadata}`;
+  }
+
+  function matchesTemplateQuery(template: TemplateRecord, query: string) {
+    const normalized = query.trim().toLowerCase();
+    if (!normalized) return true;
+    return [
+      template.generatedName,
+      template.originalName,
+      template.brand,
+      template.language,
+      template.automation,
+    ].some((value) => value.toLowerCase().includes(normalized));
   }
 
   async function createPlan() {
@@ -129,17 +148,30 @@ export function MassDeploymentPlanner({
         {wabas.map((waba) => {
           const suggested = new Set(suggestTemplatesForWaba(waba, catalogTemplates).map((template) => template.id));
           const selected = new Set(selections[waba.id] ?? []);
+          const templateQuery = templateQueries[waba.id] ?? "";
+          const visibleTemplates = catalogTemplates.filter((template) => matchesTemplateQuery(template, templateQuery));
           return (
             <div key={waba.id} className="rounded-md border">
               <div className="flex flex-col gap-2 border-b p-4 md:flex-row md:items-center md:justify-between">
                 <div>
-                  <h2 className="font-semibold">{waba.name}</h2>
+                  <h2 className="font-semibold">{wabaDisplayName(waba)}</h2>
                   <p className="font-mono text-xs text-muted-foreground">{waba.id} - {selected.size} selected</p>
                 </div>
-                <Button type="button" variant="outline" onClick={() => restoreSuggestions(waba)}>
-                  <RotateCcw className="h-4 w-4" />
-                  Restore suggestions
-                </Button>
+                <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+                  <Input
+                    className="sm:w-72"
+                    placeholder="Search template name"
+                    value={templateQuery}
+                    onChange={(event) => setTemplateQueries((current) => ({
+                      ...current,
+                      [waba.id]: event.target.value,
+                    }))}
+                  />
+                  <Button type="button" variant="outline" onClick={() => restoreSuggestions(waba)}>
+                    <RotateCcw className="h-4 w-4" />
+                    Restore suggestions
+                  </Button>
+                </div>
               </div>
               <div className="max-h-80 overflow-auto">
                 <Table>
@@ -153,7 +185,7 @@ export function MassDeploymentPlanner({
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {catalogTemplates.map((template) => (
+                    {visibleTemplates.map((template) => (
                       <TableRow key={`${waba.id}-${template.id}`}>
                         <TableCell>
                           <input
@@ -170,6 +202,13 @@ export function MassDeploymentPlanner({
                         <TableCell>{suggested.has(template.id) ? "Suggested" : "-"}</TableCell>
                       </TableRow>
                     ))}
+                    {!visibleTemplates.length ? (
+                      <TableRow>
+                        <TableCell colSpan={5} className="h-16 text-center text-muted-foreground">
+                          No template matches this search.
+                        </TableCell>
+                      </TableRow>
+                    ) : null}
                   </TableBody>
                 </Table>
               </div>
