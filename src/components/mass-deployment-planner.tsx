@@ -200,10 +200,21 @@ export function MassDeploymentPlanner({
           const suggested = new Set(suggestTemplatesForWaba(activeWaba, catalogTemplates).map((template) => template.id));
           const selected = new Set(selections[activeWaba.id] ?? []);
           const templateQuery = templateQueries[activeWaba.id] ?? "";
-          const visibleTemplates = catalogTemplates
+          const matchingTemplates = catalogTemplates
             .filter((template) => matchesTemplateQuery(template, templateQuery))
-            .slice(0, 250);
-          const matchCount = catalogTemplates.filter((template) => matchesTemplateQuery(template, templateQuery)).length;
+            .sort((left, right) => {
+              const leftSelected = selected.has(left.id) ? 1 : 0;
+              const rightSelected = selected.has(right.id) ? 1 : 0;
+              if (leftSelected !== rightSelected) return rightSelected - leftSelected;
+
+              const leftSuggested = suggested.has(left.id) ? 1 : 0;
+              const rightSuggested = suggested.has(right.id) ? 1 : 0;
+              if (leftSuggested !== rightSuggested) return rightSuggested - leftSuggested;
+
+              return left.generatedName.localeCompare(right.generatedName);
+            });
+          const visibleTemplates = matchingTemplates.slice(0, 250);
+          const matchCount = matchingTemplates.length;
           return (
             <div key={activeWaba.id} className="rounded-md border">
               <div className="flex flex-col gap-2 border-b p-4 md:flex-row md:items-center md:justify-between">
