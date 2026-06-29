@@ -184,8 +184,20 @@ async function withEnvBackedEnvironments(environments: EnvironmentRecord[]) {
 
   const existingPuig = environments.find((environment) => environment.name === PUIG_PROD_ENVIRONMENT_NAME && !environment.archivedAt);
   if (existingPuig) {
+    let changed = false;
+    if (decryptSecret(existingPuig.apiKey) !== puigApiKey) {
+      existingPuig.apiKey = encryptSecret(puigApiKey);
+      changed = true;
+    }
+    if (decryptSecret(existingPuig.apiSecret) !== puigApiSecret) {
+      existingPuig.apiSecret = encryptSecret(puigApiSecret);
+      changed = true;
+    }
     if (!decryptOptionalSecret(existingPuig.vcrCredentialName)) {
       existingPuig.vcrCredentialName = encryptSecret(PUIG_PROD_VCR_CREDENTIAL_NAME);
+      changed = true;
+    }
+    if (changed) {
       await getKv().set(ENVIRONMENTS_KEY, environments);
     }
     await setManualWabas(existingPuig.id, PUIG_PROD_WABAS);
