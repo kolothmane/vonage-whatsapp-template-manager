@@ -373,7 +373,16 @@ async function fetchVerifiedManualWabas(config: VonageConfig): Promise<Waba[]> {
         fetchTemplateCount(wabaId, templateAuthorizations),
       ]);
       if (!details && numbers.length === 0 && templateCount === null) {
-        return null;
+        return {
+          id: wabaId,
+          name: manualWabaName(manualWaba.brand, manualWaba.country, wabaId),
+          status: "Action Required" as const,
+          country: manualWaba.country ?? "Unknown",
+          brand: manualWaba.brand,
+          languagePriority: manualWaba.languagePriority,
+          templateCount: 0,
+          lastSyncAt: new Date().toISOString(),
+        };
       }
       const matchingNumbers = numbers.filter((number) =>
         String(number.waba_id ?? wabaId) === wabaId &&
