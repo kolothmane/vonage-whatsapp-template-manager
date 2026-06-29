@@ -259,105 +259,11 @@ async function fetchAllVonageWabaPages(authorization: string, credentialLabel: s
   };
 }
 
-type VonageWabaNumber = {
-  waba_id?: string;
-  api_key?: string;
-  verified_name?: string;
-};
-
-function extractWabaNumbers(data: Record<string, unknown>) {
-  const embedded = data._embedded as Record<string, unknown> | undefined;
-  for (const key of ["numbers", "wabas", "items"]) {
-    if (Array.isArray(embedded?.[key])) {
-      return embedded[key] as VonageWabaNumber[];
-    }
-  }
-  return [];
-}
-
-async function fetchWabaNumbers(wabaId: string, authorizations: string[]) {
-  for (const authorization of authorizations) {
-    const response = await fetch(
-      `https://api.nexmo.com/v1/channel-manager/whatsapp/wabas/${encodeURIComponent(wabaId)}/numbers?page=1&page_size=100`,
-      {
-        headers: { Authorization: authorization, Accept: "application/json" },
-        cache: "no-store",
-      },
-    );
-    if (response.ok) {
-      return extractWabaNumbers(await response.json() as Record<string, unknown>);
-    }
-  }
-  return [];
-}
-
-async function fetchManualWabaDetails(wabaId: string, authorizations: string[]) {
-  for (const authorization of authorizations) {
-    const response = await fetch(
-      `https://api.nexmo.com/v1/channel-manager/whatsapp/wabas/${encodeURIComponent(wabaId)}`,
-      {
-        headers: { Authorization: authorization, Accept: "application/json" },
-        cache: "no-store",
-      },
-    );
-    if (response.ok) {
-      return await response.json() as Record<string, unknown>;
-    }
-  }
-  return null;
-}
-
-async function fetchTemplateCount(wabaId: string, authorizations: string[]) {
-  for (const authorization of authorizations) {
-    let url: string | null =
-      `https://api.nexmo.com/v2/whatsapp-manager/wabas/${encodeURIComponent(wabaId)}/templates?limit=500`;
-    let count = 0;
-    let succeeded = false;
-    while (url) {
-      const response = await fetch(url, {
-        headers: { Authorization: authorization, Accept: "application/json" },
-        cache: "no-store",
-      });
-      if (!response.ok) break;
-      succeeded = true;
-      const data = await response.json() as {
-        templates?: unknown[];
-        paging?: { next?: string };
-      };
-      count += data.templates?.length ?? 0;
-      url = data.paging?.next ?? null;
-    }
-    if (succeeded) return count;
-  }
-  return null;
-}
-
 function manualWabaName(brand: string | undefined, country: string | undefined, wabaId: string) {
   return [brand, country].filter(Boolean).join(" ") || `WABA ${wabaId}`;
 }
 
-function deriveWabaNameFromNumbers(numbers: VonageWabaNumber[], fallback: string) {
-  const names = [
-    ...new Set(
-      numbers
-        .map((number) => number.verified_name?.trim())
-        .filter((name): name is string => Boolean(name)),
-    ),
-  ];
-  if (names.length === 0) return fallback;
-  if (names.length === 1) return names[0];
-  const tokenized = names.map((name) => name.split(/\s+/).filter(Boolean));
-  const commonTokens: string[] = [];
-  for (const [index, token] of tokenized[0].entries()) {
-    if (!tokenized.every((tokens) => tokens[index]?.toLowerCase() === token.toLowerCase())) break;
-    commonTokens.push(token);
-  }
-  return commonTokens.length >= 2
-    ? commonTokens.join(" ").replace(/[\s-–—]+$/, "")
-    : names[0];
-}
-
-async function fetchVerifiedManualWabas(config: VonageConfig): Promise<Waba[]> {
+async function fetchVerifiedManualWabas(): Promise<Waba[]> {
   if (!hasKvConfig()) {
     return [];
   }
@@ -368,68 +274,16 @@ async function fetchVerifiedManualWabas(config: VonageConfig): Promise<Waba[]> {
     return [];
   }
 
-  const basicAuthorization = basicAuthorizationHeader(config);
-  let vcrAuthorization: string | null = null;
-  if (config.vcrCredentialName) {
-    try {
-      vcrAuthorization = await vcrAuthorizationHeader(config);
-    } catch {
-      vcrAuthorization = null;
-    }
-  }
-  const channelAuthorizations = [
-    basicAuthorization,
-    ...(vcrAuthorization ? [vcrAuthorization] : []),
-  ];
-  const templateAuthorizations = [
-    ...(vcrAuthorization ? [vcrAuthorization] : []),
-    basicAuthorization,
-  ];
-  const verified: Array<Waba | null> = await Promise.all(
-    manualWabas.map(async (manualWaba) => {
-      const wabaId = manualWaba.id;
-      const [details, numbers, templateCount] = await Promise.all([
-        fetchManualWabaDetails(wabaId, channelAuthorizations),
-        fetchWabaNumbers(wabaId, channelAuthorizations),
-        fetchTemplateCount(wabaId, templateAuthorizations),
-      ]);
-      const matchingNumbers = numbers.filter((number) =>
-        String(number.waba_id ?? wabaId) === wabaId &&
-        (!number.api_key || number.api_key === config.apiKey),
-      );
-      if (numbers.length > 0 && matchingNumbers.length === 0) {
-        return null;
-      }
-      const fallbackName = manualWabaName(manualWaba.brand, manualWaba.country, wabaId);
-      return {
-        id: wabaId,
-        name: String(
-          details?.name ??
-          details?.business_name ??
-          deriveWabaNameFromNumbers(matchingNumbers.length > 0 ? matchingNumbers : numbers, fallbackName)
-        ),
-        status:
-          !details ||
-          details.status === "ACTIVE" ||
-          details.status === "CONNECTED" ||
-          details.account_review_status === "Approved"
-            ? "Connected" as const
-            : "Action Required" as const,
-        country: String(details?.country ?? manualWaba.country ?? "Unknown"),
-        brand: manualWaba.brand,
-        languagePriority: manualWaba.languagePriority,
-        templateCount: Number(
-          details?.template_count ??
-          details?.templates_count ??
-          templateCount ??
-          0
-        ),
-        lastSyncAt: new Date().toISOString(),
-      };
-    }),
-  );
-
-  return verified.filter((waba): waba is Waba => Boolean(waba));
+  return manualWabas.map((manualWaba) => ({
+    id: manualWaba.id,
+    name: manualWabaName(manualWaba.brand, manualWaba.country, manualWaba.id),
+    status: "Connected" as const,
+    country: manualWaba.country ?? "Unknown",
+    brand: manualWaba.brand,
+    languagePriority: manualWaba.languagePriority,
+    templateCount: 0,
+    lastSyncAt: new Date().toISOString(),
+  }));
 }
 
 export async function fetchVonageWabas(): Promise<Waba[]> {
@@ -442,7 +296,7 @@ export async function fetchVonageWabas(): Promise<Waba[]> {
       credentialLabel,
     );
   } catch (error) {
-    const manualWabas = await fetchVerifiedManualWabas(config);
+    const manualWabas = await fetchVerifiedManualWabas();
     if (manualWabas.length > 0) {
       return manualWabas;
     }
@@ -451,7 +305,7 @@ export async function fetchVonageWabas(): Promise<Waba[]> {
   const selectedResult = basicResult;
 
   if (selectedResult.rawWabas.length === 0) {
-    const manualWabas = await fetchVerifiedManualWabas(config);
+    const manualWabas = await fetchVerifiedManualWabas();
     if (manualWabas.length > 0) {
       return manualWabas;
     }
