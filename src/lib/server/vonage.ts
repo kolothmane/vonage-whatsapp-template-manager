@@ -393,9 +393,6 @@ async function fetchVerifiedManualWabas(config: VonageConfig): Promise<Waba[]> {
         fetchWabaNumbers(wabaId, channelAuthorizations),
         fetchTemplateCount(wabaId, templateAuthorizations),
       ]);
-      if (!details && numbers.length === 0 && templateCount === null) {
-        return null;
-      }
       const matchingNumbers = numbers.filter((number) =>
         String(number.waba_id ?? wabaId) === wabaId &&
         (!number.api_key || number.api_key === config.apiKey),
