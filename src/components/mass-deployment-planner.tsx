@@ -36,8 +36,25 @@ export function MassDeploymentPlanner({
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [templateQueries, setTemplateQueries] = useState<Record<string, string>>({});
+  const [wabaQuery, setWabaQuery] = useState("");
+  const [activeWabaId, setActiveWabaId] = useState(wabas[0]?.id ?? "");
 
   const plannedTotal = Object.values(selections).reduce((sum, ids) => sum + ids.length, 0);
+  const wabaById = useMemo(() => new Map(wabas.map((waba) => [waba.id, waba])), [wabas]);
+  const filteredWabas = useMemo(() => {
+    const normalized = wabaQuery.trim().toLowerCase();
+    if (!normalized) return wabas;
+    return wabas.filter((waba) =>
+      [
+        waba.id,
+        waba.name,
+        waba.brand ?? "",
+        waba.country,
+        waba.languagePriority ?? "",
+      ].some((value) => value.toLowerCase().includes(normalized)),
+    );
+  }, [wabaQuery, wabas]);
+  const activeWaba = wabaById.get(activeWabaId) ?? filteredWabas[0] ?? wabas[0];
   const cronUrl = activeEnvironmentId
     ? `https://vonage-whatsapp-template-manager.vercel.app/api/cron/mass-deploy?environmentId=${encodeURIComponent(activeEnvironmentId)}&limit=100`
     : "";
@@ -144,18 +161,55 @@ export function MassDeploymentPlanner({
         {message ? <p className="text-sm text-muted-foreground">{message}</p> : null}
       </section>
 
-      <section className="grid gap-4">
-        {wabas.map((waba) => {
-          const suggested = new Set(suggestTemplatesForWaba(waba, catalogTemplates).map((template) => template.id));
-          const selected = new Set(selections[waba.id] ?? []);
-          const templateQuery = templateQueries[waba.id] ?? "";
-          const visibleTemplates = catalogTemplates.filter((template) => matchesTemplateQuery(template, templateQuery));
+      <section className="grid gap-4 lg:grid-cols-[360px_1fr]">
+        <div className="rounded-md border">
+          <div className="border-b p-4">
+            <h2 className="font-semibold">WABAs</h2>
+            <Input
+              className="mt-3"
+              placeholder="Search WABA, brand, country"
+              value={wabaQuery}
+              onChange={(event) => setWabaQuery(event.target.value)}
+            />
+          </div>
+          <div className="max-h-[680px] overflow-auto">
+            {filteredWabas.map((waba) => {
+              const selectedCount = selections[waba.id]?.length ?? 0;
+              const active = waba.id === activeWaba?.id;
+              return (
+                <button
+                  key={waba.id}
+                  type="button"
+                  className={active ? "block w-full border-b bg-secondary p-3 text-left" : "block w-full border-b p-3 text-left hover:bg-secondary/60"}
+                  onClick={() => setActiveWabaId(waba.id)}
+                >
+                  <span className="block truncate text-sm font-medium">{wabaDisplayName(waba)}</span>
+                  <span className="mt-1 block font-mono text-xs text-muted-foreground">
+                    {waba.id} - {selectedCount} selected
+                  </span>
+                </button>
+              );
+            })}
+            {!filteredWabas.length ? (
+              <div className="p-4 text-sm text-muted-foreground">No WABA matches this search.</div>
+            ) : null}
+          </div>
+        </div>
+
+        {activeWaba ? (() => {
+          const suggested = new Set(suggestTemplatesForWaba(activeWaba, catalogTemplates).map((template) => template.id));
+          const selected = new Set(selections[activeWaba.id] ?? []);
+          const templateQuery = templateQueries[activeWaba.id] ?? "";
+          const visibleTemplates = catalogTemplates
+            .filter((template) => matchesTemplateQuery(template, templateQuery))
+            .slice(0, 250);
+          const matchCount = catalogTemplates.filter((template) => matchesTemplateQuery(template, templateQuery)).length;
           return (
-            <div key={waba.id} className="rounded-md border">
+            <div key={activeWaba.id} className="rounded-md border">
               <div className="flex flex-col gap-2 border-b p-4 md:flex-row md:items-center md:justify-between">
                 <div>
-                  <h2 className="font-semibold">{wabaDisplayName(waba)}</h2>
-                  <p className="font-mono text-xs text-muted-foreground">{waba.id} - {selected.size} selected</p>
+                  <h2 className="font-semibold">{wabaDisplayName(activeWaba)}</h2>
+                  <p className="font-mono text-xs text-muted-foreground">{activeWaba.id} - {selected.size} selected</p>
                 </div>
                 <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
                   <Input
@@ -164,14 +218,17 @@ export function MassDeploymentPlanner({
                     value={templateQuery}
                     onChange={(event) => setTemplateQueries((current) => ({
                       ...current,
-                      [waba.id]: event.target.value,
+                      [activeWaba.id]: event.target.value,
                     }))}
                   />
-                  <Button type="button" variant="outline" onClick={() => restoreSuggestions(waba)}>
+                  <Button type="button" variant="outline" onClick={() => restoreSuggestions(activeWaba)}>
                     <RotateCcw className="h-4 w-4" />
                     Restore suggestions
                   </Button>
                 </div>
+              </div>
+              <div className="border-b px-4 py-2 text-xs text-muted-foreground">
+                Showing {formatNumber(visibleTemplates.length)} of {formatNumber(matchCount)} matching template(s). Use search to narrow large catalogs.
               </div>
               <div className="max-h-80 overflow-auto">
                 <Table>
@@ -186,14 +243,14 @@ export function MassDeploymentPlanner({
                   </TableHeader>
                   <TableBody>
                     {visibleTemplates.map((template) => (
-                      <TableRow key={`${waba.id}-${template.id}`}>
+                      <TableRow key={`${activeWaba.id}-${template.id}`}>
                         <TableCell>
                           <input
-                            aria-label={`Use ${template.generatedName} for ${waba.name}`}
+                            aria-label={`Use ${template.generatedName} for ${activeWaba.name}`}
                             checked={selected.has(template.id)}
                             className="h-4 w-4"
                             type="checkbox"
-                            onChange={() => toggle(waba.id, template.id)}
+                            onChange={() => toggle(activeWaba.id, template.id)}
                           />
                         </TableCell>
                         <TableCell className="font-mono text-xs">{template.generatedName}</TableCell>
@@ -214,7 +271,9 @@ export function MassDeploymentPlanner({
               </div>
             </div>
           );
-        })}
+        })() : (
+          <div className="rounded-md border p-6 text-sm text-muted-foreground">No WABA available.</div>
+        )}
       </section>
 
       <section className="rounded-md border">

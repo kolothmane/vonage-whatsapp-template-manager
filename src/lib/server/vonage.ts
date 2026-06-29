@@ -348,9 +348,14 @@ async function fetchVerifiedManualWabas(config: VonageConfig): Promise<Waba[]> {
   }
 
   const basicAuthorization = basicAuthorizationHeader(config);
-  const vcrAuthorization = config.vcrCredentialName
-    ? await vcrAuthorizationHeader(config)
-    : null;
+  let vcrAuthorization: string | null = null;
+  if (config.vcrCredentialName) {
+    try {
+      vcrAuthorization = await vcrAuthorizationHeader(config);
+    } catch {
+      vcrAuthorization = null;
+    }
+  }
   const channelAuthorizations = [
     basicAuthorization,
     ...(vcrAuthorization ? [vcrAuthorization] : []),
