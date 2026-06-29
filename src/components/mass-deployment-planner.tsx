@@ -12,6 +12,34 @@ import { formatDateTime, formatNumber } from "@/lib/utils";
 
 type SelectionState = Record<string, string[]>;
 
+function TemplateFilterSelect({
+  label,
+  value,
+  values,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  values: string[];
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="grid gap-1 text-xs text-muted-foreground sm:w-36">
+      {label}
+      <select
+        className="h-10 rounded-md border bg-white px-3 text-sm text-foreground"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      >
+        <option value="ALL">All</option>
+        {values.map((item) => (
+          <option key={item} value={item}>{item}</option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
 export function MassDeploymentPlanner({
   wabas,
   templates,
@@ -38,8 +66,12 @@ export function MassDeploymentPlanner({
   const [templateQueries, setTemplateQueries] = useState<Record<string, string>>({});
   const [wabaQuery, setWabaQuery] = useState("");
   const [activeWabaId, setActiveWabaId] = useState(wabas[0]?.id ?? "");
+  const [brandFilter, setBrandFilter] = useState("ALL");
+  const [languageFilter, setLanguageFilter] = useState("ALL");
 
   const plannedTotal = Object.values(selections).reduce((sum, ids) => sum + ids.length, 0);
+  const brands = useMemo(() => [...new Set(catalogTemplates.map((template) => template.brand))].sort(), [catalogTemplates]);
+  const languages = useMemo(() => [...new Set(catalogTemplates.map((template) => template.language))].sort(), [catalogTemplates]);
   const wabaById = useMemo(() => new Map(wabas.map((waba) => [waba.id, waba])), [wabas]);
   const filteredWabas = useMemo(() => {
     const normalized = wabaQuery.trim().toLowerCase();
@@ -201,7 +233,11 @@ export function MassDeploymentPlanner({
           const selected = new Set(selections[activeWaba.id] ?? []);
           const templateQuery = templateQueries[activeWaba.id] ?? "";
           const matchingTemplates = catalogTemplates
-            .filter((template) => matchesTemplateQuery(template, templateQuery))
+            .filter((template) =>
+              matchesTemplateQuery(template, templateQuery) &&
+              (brandFilter === "ALL" || template.brand === brandFilter) &&
+              (languageFilter === "ALL" || template.language === languageFilter)
+            )
             .sort((left, right) => {
               const leftSelected = selected.has(left.id) ? 1 : 0;
               const rightSelected = selected.has(right.id) ? 1 : 0;
@@ -232,6 +268,8 @@ export function MassDeploymentPlanner({
                       [activeWaba.id]: event.target.value,
                     }))}
                   />
+                  <TemplateFilterSelect label="Brand" value={brandFilter} values={brands} onChange={setBrandFilter} />
+                  <TemplateFilterSelect label="Language" value={languageFilter} values={languages} onChange={setLanguageFilter} />
                   <Button type="button" variant="outline" onClick={() => restoreSuggestions(activeWaba)}>
                     <RotateCcw className="h-4 w-4" />
                     Restore suggestions
