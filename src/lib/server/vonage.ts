@@ -336,6 +336,27 @@ function manualWabaName(brand: string | undefined, country: string | undefined, 
   return [brand, country].filter(Boolean).join(" ") || `WABA ${wabaId}`;
 }
 
+function deriveWabaNameFromNumbers(numbers: VonageWabaNumber[], fallback: string) {
+  const names = [
+    ...new Set(
+      numbers
+        .map((number) => number.verified_name?.trim())
+        .filter((name): name is string => Boolean(name)),
+    ),
+  ];
+  if (names.length === 0) return fallback;
+  if (names.length === 1) return names[0];
+  const tokenized = names.map((name) => name.split(/\s+/).filter(Boolean));
+  const commonTokens: string[] = [];
+  for (const [index, token] of tokenized[0].entries()) {
+    if (!tokenized.every((tokens) => tokens[index]?.toLowerCase() === token.toLowerCase())) break;
+    commonTokens.push(token);
+  }
+  return commonTokens.length >= 2
+    ? commonTokens.join(" ").replace(/[\s-–—]+$/, "")
+    : names[0];
+}
+
 async function fetchVerifiedManualWabas(config: VonageConfig): Promise<Waba[]> {
   if (!hasKvConfig()) {
     return [];
@@ -382,12 +403,13 @@ async function fetchVerifiedManualWabas(config: VonageConfig): Promise<Waba[]> {
       if (numbers.length > 0 && matchingNumbers.length === 0) {
         return null;
       }
+      const fallbackName = manualWabaName(manualWaba.brand, manualWaba.country, wabaId);
       return {
         id: wabaId,
         name: String(
           details?.name ??
           details?.business_name ??
-          manualWabaName(manualWaba.brand, manualWaba.country, wabaId)
+          deriveWabaNameFromNumbers(matchingNumbers.length > 0 ? matchingNumbers : numbers, fallbackName)
         ),
         status:
           !details ||
