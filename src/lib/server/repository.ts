@@ -519,6 +519,24 @@ export async function startMassDeployment(id: string) {
   return deployments[index];
 }
 
+export async function pauseMassDeployment(id: string) {
+  if (!hasKvConfig() || hasDatabaseUrl()) {
+    throw new Error("Mass deployment requires the configured Upstash KV backend.");
+  }
+  const keys = await kvKeys();
+  const deployments = await readKvCollection<MassDeploymentRecord>(keys.massDeployments);
+  const index = deployments.findIndex((deployment) => deployment.id === id);
+  if (index < 0) return null;
+  const now = new Date().toISOString();
+  deployments[index] = {
+    ...deployments[index],
+    status: "Paused",
+    updatedAt: now,
+  };
+  await getKv().set(keys.massDeployments, deployments);
+  return deployments[index];
+}
+
 export async function updateMassDeploymentProgress(params: {
   deploymentId: string;
   updates: MassDeploymentItem[];

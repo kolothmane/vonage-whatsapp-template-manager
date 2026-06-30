@@ -1,8 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Play, Plus, RotateCcw } from "lucide-react";
-import type { MassDeploymentRecord, TemplateRecord, Waba } from "@/lib/domain/types";
+import { Pause, Play, Plus, RotateCcw } from "lucide-react";
+import type { MassDeploymentItem, MassDeploymentRecord, SubmissionErrorRecord, TemplateRecord, Waba } from "@/lib/domain/types";
 import { suggestTemplatesForWaba } from "@/lib/domain/template-suggestions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -44,11 +44,15 @@ export function MassDeploymentPlanner({
   wabas,
   templates,
   deployments,
+  deploymentItems,
+  submissionErrors,
   activeEnvironmentId,
 }: {
   wabas: Waba[];
   templates: TemplateRecord[];
   deployments: MassDeploymentRecord[];
+  deploymentItems: MassDeploymentItem[];
+  submissionErrors: SubmissionErrorRecord[];
   activeEnvironmentId: string;
 }) {
   const catalogTemplates = useMemo(() => templates.filter((template) => !template.wabaId), [templates]);
@@ -70,6 +74,19 @@ export function MassDeploymentPlanner({
   const [languageFilter, setLanguageFilter] = useState("ALL");
 
   const plannedTotal = Object.values(selections).reduce((sum, ids) => sum + ids.length, 0);
+  const recentDeploymentItems = useMemo(
+    () => [...deploymentItems]
+      .filter((item) => item.status !== "Queued" || item.attempts > 0)
+      .sort((left, right) =>
+        (right.lastAttemptAt ?? right.submittedAt ?? "").localeCompare(left.lastAttemptAt ?? left.submittedAt ?? ""),
+      )
+      .slice(0, 25),
+    [deploymentItems],
+  );
+  const recentSubmissionErrors = useMemo(
+    () => [...submissionErrors].sort((left, right) => right.timestamp.localeCompare(left.timestamp)).slice(0, 25),
+    [submissionErrors],
+  );
   const brands = useMemo(() => [...new Set(catalogTemplates.map((template) => template.brand))].sort(), [catalogTemplates]);
   const languages = useMemo(() => [...new Set(catalogTemplates.map((template) => template.language))].sort(), [catalogTemplates]);
   const wabaById = useMemo(() => new Map(wabas.map((waba) => [waba.id, waba])), [wabas]);
@@ -160,6 +177,21 @@ export function MassDeploymentPlanner({
       setMessage("Deployment marked as running. The next scheduler call will process up to 100 templates.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Unable to start deployment.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function pausePlan(id: string) {
+    setBusy(true);
+    setMessage("");
+    try {
+      const response = await fetch(`/api/mass-deployments/${encodeURIComponent(id)}/pause`, { method: "POST" });
+      const result = (await response.json()) as { message?: string };
+      if (!response.ok) throw new Error(result.message || "Unable to pause deployment.");
+      setMessage("Deployment paused. The scheduler will ignore it until it is started again.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to pause deployment.");
     } finally {
       setBusy(false);
     }
@@ -341,7 +373,7 @@ export function MassDeploymentPlanner({
                 <TableHead>Submitted</TableHead>
                 <TableHead>Failed</TableHead>
                 <TableHead>Updated</TableHead>
-                <TableHead className="w-24">Action</TableHead>
+                <TableHead className="w-40">Action</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -355,10 +387,16 @@ export function MassDeploymentPlanner({
                   <TableCell className="font-mono">{deployment.failed}</TableCell>
                   <TableCell>{formatDateTime(deployment.updatedAt)}</TableCell>
                   <TableCell>
-                    <Button size="sm" disabled={deployment.status !== "Draft" || busy} onClick={() => void startPlan(deployment.id)}>
-                      <Play className="h-4 w-4" />
-                      Start
-                    </Button>
+                    <div className="flex gap-2">
+                      <Button size="sm" disabled={!["Draft", "Paused"].includes(deployment.status) || busy} onClick={() => void startPlan(deployment.id)}>
+                        <Play className="h-4 w-4" />
+                        Start
+                      </Button>
+                      <Button size="sm" variant="outline" disabled={deployment.status !== "Running" || busy} onClick={() => void pausePlan(deployment.id)}>
+                        <Pause className="h-4 w-4" />
+                        Pause
+                      </Button>
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}
@@ -369,6 +407,81 @@ export function MassDeploymentPlanner({
               ) : null}
             </TableBody>
           </Table>
+        </div>
+      </section>
+
+      <section className="grid gap-4 lg:grid-cols-2">
+        <div className="rounded-md border">
+          <div className="border-b p-4">
+            <h2 className="font-semibold">Recent deployment activity</h2>
+            <p className="mt-1 text-xs text-muted-foreground">Generated from mass-deployment item attempts.</p>
+          </div>
+          <div className="max-h-96 overflow-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Time</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>WABA</TableHead>
+                  <TableHead>Template</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {recentDeploymentItems.map((item) => (
+                  <TableRow key={item.id}>
+                    <TableCell>{formatDateTime(item.lastAttemptAt ?? item.submittedAt ?? "")}</TableCell>
+                    <TableCell><StatusBadge status={item.status} /></TableCell>
+                    <TableCell className="font-mono text-xs">{item.wabaName}</TableCell>
+                    <TableCell className="font-mono text-xs">{item.templateName}</TableCell>
+                  </TableRow>
+                ))}
+                {!recentDeploymentItems.length ? (
+                  <TableRow>
+                    <TableCell colSpan={4} className="h-20 text-center text-muted-foreground">No deployment activity yet.</TableCell>
+                  </TableRow>
+                ) : null}
+              </TableBody>
+            </Table>
+          </div>
+        </div>
+
+        <div className="rounded-md border">
+          <div className="flex items-center justify-between border-b p-4">
+            <div>
+              <h2 className="font-semibold">Recent submission errors</h2>
+              <p className="mt-1 text-xs text-muted-foreground">Failed rows are written here and to the CSV export.</p>
+            </div>
+            <a className="text-sm underline" href="/api/mass-deployments/submission-errors?format=csv">CSV</a>
+          </div>
+          <div className="max-h-96 overflow-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Time</TableHead>
+                  <TableHead>WABA</TableHead>
+                  <TableHead>Template</TableHead>
+                  <TableHead>Error</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {recentSubmissionErrors.map((error) => (
+                  <TableRow key={error.id}>
+                    <TableCell>{formatDateTime(error.timestamp)}</TableCell>
+                    <TableCell className="font-mono text-xs">{error.wabaName}</TableCell>
+                    <TableCell className="font-mono text-xs">{error.templateName}</TableCell>
+                    <TableCell className="max-w-80 truncate text-xs text-red-700" title={error.errorMessage}>
+                      {error.errorCode ? `${error.errorCode}: ` : ""}{error.errorMessage}
+                    </TableCell>
+                  </TableRow>
+                ))}
+                {!recentSubmissionErrors.length ? (
+                  <TableRow>
+                    <TableCell colSpan={4} className="h-20 text-center text-muted-foreground">No submission errors yet.</TableCell>
+                  </TableRow>
+                ) : null}
+              </TableBody>
+            </Table>
+          </div>
         </div>
       </section>
     </div>

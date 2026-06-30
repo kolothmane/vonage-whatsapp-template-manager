@@ -1,15 +1,17 @@
 import { MassDeploymentPlanner } from "@/components/mass-deployment-planner";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { getActiveEnvironmentIdForUser } from "@/lib/server/environments";
-import { listMassDeployments, listTemplates, listWabas } from "@/lib/server/repository";
+import { listMassDeploymentItems, listMassDeployments, listSubmissionErrors, listTemplates, listWabas } from "@/lib/server/repository";
 import { auth } from "@/auth";
 
 export default async function DeploymentsPage() {
   const session = await auth();
-  const [wabas, templates, deployments] = await Promise.all([
+  const [wabas, templates, deployments, deploymentItems, submissionErrors] = await Promise.all([
     listWabas(),
     listTemplates(),
     listMassDeployments(),
+    listMassDeploymentItems(),
+    listSubmissionErrors(),
   ]);
   const activeEnvironmentId = session?.user?.email
     ? await getActiveEnvironmentIdForUser(session.user.email)
@@ -35,6 +37,8 @@ export default async function DeploymentsPage() {
           <MassDeploymentPlanner
             activeEnvironmentId={activeEnvironmentId}
             deployments={deployments}
+            deploymentItems={deploymentItems}
+            submissionErrors={submissionErrors}
             templates={templates}
             wabas={wabas}
           />
