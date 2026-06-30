@@ -74,9 +74,9 @@ export function MassDeploymentPlanner({
   const [languageFilter, setLanguageFilter] = useState("ALL");
 
   const plannedTotal = Object.values(selections).reduce((sum, ids) => sum + ids.length, 0);
-  const recentDeploymentItems = useMemo(
+  const recentSubmittedItems = useMemo(
     () => [...deploymentItems]
-      .filter((item) => item.status !== "Queued" || item.attempts > 0)
+      .filter((item) => item.status === "Submitted")
       .sort((left, right) =>
         (right.lastAttemptAt ?? right.submittedAt ?? "").localeCompare(left.lastAttemptAt ?? left.submittedAt ?? ""),
       )
@@ -413,31 +413,36 @@ export function MassDeploymentPlanner({
       <section className="grid gap-4 lg:grid-cols-2">
         <div className="rounded-md border">
           <div className="border-b p-4">
-            <h2 className="font-semibold">Recent deployment activity</h2>
-            <p className="mt-1 text-xs text-muted-foreground">Generated from mass-deployment item attempts.</p>
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h2 className="font-semibold">Recent successful submissions</h2>
+                <p className="mt-1 text-xs text-muted-foreground">Only templates successfully submitted by mass deployments.</p>
+              </div>
+              <a className="text-sm underline" href="/api/mass-deployments/submitted?format=csv">CSV</a>
+            </div>
           </div>
           <div className="max-h-96 overflow-auto">
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>Time</TableHead>
-                  <TableHead>Status</TableHead>
                   <TableHead>WABA</TableHead>
                   <TableHead>Template</TableHead>
+                  <TableHead>Attempts</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {recentDeploymentItems.map((item) => (
+                {recentSubmittedItems.map((item) => (
                   <TableRow key={item.id}>
-                    <TableCell>{formatDateTime(item.lastAttemptAt ?? item.submittedAt ?? "")}</TableCell>
-                    <TableCell><StatusBadge status={item.status} /></TableCell>
+                    <TableCell>{formatDateTime(item.submittedAt ?? item.lastAttemptAt ?? "")}</TableCell>
                     <TableCell className="font-mono text-xs">{item.wabaName}</TableCell>
                     <TableCell className="font-mono text-xs">{item.templateName}</TableCell>
+                    <TableCell className="font-mono text-xs">{item.attempts}</TableCell>
                   </TableRow>
                 ))}
-                {!recentDeploymentItems.length ? (
+                {!recentSubmittedItems.length ? (
                   <TableRow>
-                    <TableCell colSpan={4} className="h-20 text-center text-muted-foreground">No deployment activity yet.</TableCell>
+                    <TableCell colSpan={4} className="h-20 text-center text-muted-foreground">No successful submission yet.</TableCell>
                   </TableRow>
                 ) : null}
               </TableBody>
