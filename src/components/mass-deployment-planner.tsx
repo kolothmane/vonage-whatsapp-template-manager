@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Eye, Pause, Play, Plus, RotateCcw, X } from "lucide-react";
+import { Clock, Eye, Pause, Play, Plus, RotateCcw, X } from "lucide-react";
 import type { ApiLogRecord, MassDeploymentItem, MassDeploymentRecord, SubmissionErrorRecord, TemplateRecord, Waba } from "@/lib/domain/types";
 import { suggestTemplatesForWaba } from "@/lib/domain/template-suggestions";
 import { Button } from "@/components/ui/button";
@@ -16,6 +16,8 @@ type DeploymentApiCallsState = {
   logs: ApiLogRecord[];
   refreshedAt?: string;
 };
+
+const GITHUB_CRON_INTERVAL_HOURS = 2;
 
 function TemplateFilterSelect({
   label,
@@ -43,6 +45,24 @@ function TemplateFilterSelect({
       </select>
     </label>
   );
+}
+
+function getNextCronDate(now: Date) {
+  const next = new Date(now);
+  next.setUTCMinutes(0, 0, 0);
+  const currentHour = now.getUTCHours();
+  const nextHour = currentHour - (currentHour % GITHUB_CRON_INTERVAL_HOURS) + GITHUB_CRON_INTERVAL_HOURS;
+  next.setUTCHours(nextHour);
+  return next;
+}
+
+function formatDuration(ms: number) {
+  const totalSeconds = Math.max(0, Math.ceil(ms / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  if (hours > 0) return `${hours}h ${minutes.toString().padStart(2, "0")}m`;
+  return `${minutes}m ${seconds.toString().padStart(2, "0")}s`;
 }
 
 export function MassDeploymentPlanner({
@@ -80,6 +100,7 @@ export function MassDeploymentPlanner({
   const [visibleApiCallsDeploymentId, setVisibleApiCallsDeploymentId] = useState("");
   const [apiCalls, setApiCalls] = useState<DeploymentApiCallsState>({ logs: [] });
   const [apiCallsMessage, setApiCallsMessage] = useState("");
+  const [now, setNow] = useState(() => new Date());
 
   const plannedTotal = Object.values(selections).reduce((sum, ids) => sum + ids.length, 0);
   const recentSubmittedItems = useMemo(
@@ -115,6 +136,8 @@ export function MassDeploymentPlanner({
   const cronUrl = activeEnvironmentId
     ? `https://vonage-whatsapp-template-manager.vercel.app/api/cron/mass-deploy?environmentId=${encodeURIComponent(activeEnvironmentId)}&limit=100`
     : "";
+  const nextCronDate = useMemo(() => getNextCronDate(now), [now]);
+  const nextCronCountdown = formatDuration(nextCronDate.getTime() - now.getTime());
 
   const visibleApiCallsDeployment = useMemo(
     () => deployments.find((deployment) => deployment.id === visibleApiCallsDeploymentId),
@@ -150,6 +173,11 @@ export function MassDeploymentPlanner({
       window.clearInterval(interval);
     };
   }, [visibleApiCallsDeploymentId]);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => setNow(new Date()), 1000);
+    return () => window.clearInterval(interval);
+  }, []);
 
   function toggle(wabaId: string, templateId: string) {
     setSelections((current) => {
@@ -407,8 +435,14 @@ export function MassDeploymentPlanner({
       </section>
 
       <section className="rounded-md border">
-        <div className="flex items-center justify-between border-b p-4">
-          <h2 className="font-semibold">Deployment plans</h2>
+        <div className="flex flex-col gap-3 border-b p-4 md:flex-row md:items-center md:justify-between">
+          <div className="flex flex-col gap-2 md:flex-row md:items-center">
+            <h2 className="font-semibold">Deployment plans</h2>
+            <div className="inline-flex w-fit items-center gap-2 rounded-md border px-2.5 py-1 text-xs text-muted-foreground">
+              <Clock className="h-3.5 w-3.5" />
+              Next cron in {nextCronCountdown}
+            </div>
+          </div>
           <a className="text-sm underline" href="/api/mass-deployments/submission-errors?format=csv">Download submission errors</a>
         </div>
         <div className="overflow-x-auto">
