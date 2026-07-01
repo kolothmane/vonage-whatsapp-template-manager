@@ -1,4 +1,5 @@
 import type {
+  ApiLogRecord,
   AuditLogRecord,
   ImportRecord,
   LogRecord,
@@ -20,6 +21,7 @@ async function kvKeys() {
     templates: environmentKey(environment.id, "templates"),
     imports: environmentKey(environment.id, "imports"),
     logs: environmentKey(environment.id, "logs"),
+    apiLogs: environmentKey(environment.id, "api-logs"),
     auditLogs: environmentKey(environment.id, "audit-logs"),
     massDeployments: environmentKey(environment.id, "mass-deployments"),
     massDeploymentItems: environmentKey(environment.id, "mass-deployment-items"),
@@ -212,6 +214,35 @@ export async function listAuditLogs(): Promise<AuditLogRecord[]> {
   }));
 }
 
+export async function listApiLogs(limit = 25): Promise<ApiLogRecord[]> {
+  const take = Math.max(5, Math.min(100, limit));
+  if (!hasDatabaseUrl()) {
+    const keys = await kvKeysForRead();
+    if (!keys) return [];
+    const logs = await readKvCollection<ApiLogRecord>(keys.apiLogs);
+    return logs.sort((a, b) => b.timestamp.localeCompare(a.timestamp)).slice(0, take);
+  }
+
+  return [];
+}
+
+export async function appendApiLog(entry: Omit<ApiLogRecord, "id" | "timestamp"> & { timestamp?: string }) {
+  if (!hasKvConfig() || hasDatabaseUrl()) return;
+  let keys: Awaited<ReturnType<typeof kvKeys>>;
+  try {
+    keys = await kvKeys();
+  } catch {
+    return;
+  }
+  const logs = await readKvCollection<ApiLogRecord>(keys.apiLogs);
+  const record: ApiLogRecord = {
+    id: crypto.randomUUID(),
+    timestamp: entry.timestamp ?? new Date().toISOString(),
+    ...entry,
+  };
+  await getKv().set(keys.apiLogs, [record, ...logs].slice(0, 500));
+}
+
 export async function saveWabas(wabas: Waba[]) {
   if (hasDatabaseUrl()) {
     const prisma = getPrisma();
@@ -241,7 +272,13 @@ export async function saveWabas(wabas: Waba[]) {
   }
 
   if (hasKvConfig()) {
-    await getKv().set((await kvKeys()).wabas, wabas);
+    const key = (await kvKeys()).wabas;
+    const existing = await readKvCollection<Waba>(key);
+    const merged = new Map(existing.map((waba) => [waba.id, waba]));
+    for (const waba of wabas) {
+      merged.set(waba.id, waba);
+    }
+    await getKv().set(key, [...merged.values()]);
   }
 }
 

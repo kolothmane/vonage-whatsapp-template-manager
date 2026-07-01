@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
+  Activity,
   Gauge,
   FileClock,
   History,
@@ -48,7 +49,10 @@ const sections = [
   },
   {
     label: "CONTROL",
-    items: [{ href: "/settings", label: "Settings", icon: Settings }],
+    items: [
+      { href: "/settings", label: "Settings", icon: Settings },
+      { href: "/api-logs", label: "Logs API", icon: Activity },
+    ],
   },
 ] as const;
 

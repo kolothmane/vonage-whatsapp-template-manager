@@ -112,6 +112,26 @@ export type AuditLogRecord = {
   date: string;
 };
 
+export type ApiLogRecord = {
+  id: string;
+  timestamp: string;
+  environmentId?: string;
+  environmentName?: string;
+  service: "Vonage";
+  method: string;
+  url: string;
+  endpoint: string;
+  status: number | null;
+  ok: boolean;
+  durationMs: number;
+  credentialSource?: "environment" | "master" | "vcr";
+  apiKeySuffix?: string;
+  wabaId?: string;
+  requestId?: string;
+  responseSummary?: string;
+  errorMessage?: string;
+};
+
 export type MassDeploymentItem = {
   id: string;
   deploymentId: string;

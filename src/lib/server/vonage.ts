@@ -2,13 +2,14 @@ import type { VonageTemplatePayload, Waba } from "@/lib/domain/types";
 import { getKv, hasKvConfig } from "@/lib/server/kv";
 import { ensureVonageTrailingParamMarker } from "@/lib/domain/payload";
 import { environmentKey, getActiveEnvironment, getEnvironmentManualWabas } from "@/lib/server/environments";
+import { appendApiLog } from "@/lib/server/repository";
 
 
 export type VonageConfig = {
   environmentId?: string;
   apiKey?: string;
   apiSecret?: string;
-  credentialSource?: "environment" | "master";
+  credentialSource?: "environment" | "master" | "vcr";
   applicationId?: string;
   privateKey?: string;
   vcrCredentialName?: string;
@@ -88,6 +89,63 @@ function normalizeVcrCredentialName(value: string) {
   return trimmed.endsWith("-CERT") ? trimmed : `${trimmed}-CERT`;
 }
 
+function publicEndpoint(input: string | URL) {
+  const url = new URL(String(input));
+  return `${url.pathname}${url.search}`;
+}
+
+function extractWabaIdFromUrl(input: string | URL) {
+  const match = String(input).match(/\/wabas\/([^/?]+)/);
+  return match ? decodeURIComponent(match[1]) : undefined;
+}
+
+function summarizeApiBody(body: unknown) {
+  if (!body) return undefined;
+  if (typeof body === "string") return body.slice(0, 500);
+  if (typeof body !== "object") return String(body);
+  const data = body as Record<string, unknown>;
+  const parts = [
+    data.detail,
+    data.message,
+    data.title,
+    data.instance ? `instance: ${data.instance}` : undefined,
+  ].filter(Boolean);
+  if (parts.length) return parts.join(" · ").slice(0, 500);
+  const keys = Object.keys(data).slice(0, 8);
+  return keys.length ? `Response keys: ${keys.join(", ")}` : undefined;
+}
+
+async function logVonageApiCall(params: {
+  config: VonageConfig;
+  input: string | URL;
+  method?: string;
+  status: number | null;
+  ok: boolean;
+  durationMs: number;
+  credentialSource?: "environment" | "master" | "vcr";
+  requestId?: string | null;
+  body?: unknown;
+  errorMessage?: string;
+}) {
+  await appendApiLog({
+    environmentId: params.config.environmentId,
+    environmentName: params.config.environmentName,
+    service: "Vonage",
+    method: params.method ?? "GET",
+    url: new URL(String(params.input)).origin,
+    endpoint: publicEndpoint(params.input),
+    status: params.status,
+    ok: params.ok,
+    durationMs: params.durationMs,
+    credentialSource: params.credentialSource ?? params.config.credentialSource ?? "environment",
+    apiKeySuffix: params.config.apiKey?.slice(-4),
+    wabaId: extractWabaIdFromUrl(params.input),
+    requestId: params.requestId ?? undefined,
+    responseSummary: summarizeApiBody(params.body),
+    errorMessage: params.errorMessage,
+  });
+}
+
 function extractVcrToken(body: Record<string, unknown>) {
   for (const key of ["token", "access_token", "jwt"]) {
     if (typeof body[key] === "string") return String(body[key]);
@@ -139,17 +197,26 @@ async function vcrAuthorizationHeader(config: VonageConfig, options?: { forceRef
     }
   }
 
-  const response = await fetch(
-    `https://api-eu.vonage.com/v1/creds/${encodeURIComponent(credentialName)}/token`,
-    {
+  const tokenUrl = `https://api-eu.vonage.com/v1/creds/${encodeURIComponent(credentialName)}/token`;
+  const startedAt = Date.now();
+  const response = await fetch(tokenUrl, {
       headers: {
         Accept: "application/json",
         Authorization: basicAuthorizationHeader(config),
       },
       cache: "no-store",
-    },
-  );
+    });
   const body = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+  await logVonageApiCall({
+    config,
+    input: tokenUrl,
+    status: response.status,
+    ok: response.ok,
+    durationMs: Date.now() - startedAt,
+    credentialSource: "environment",
+    requestId: response.headers.get("x-request-id"),
+    body,
+  });
   if (!response.ok) {
     throw new Error(
       `Vonage VCR token retrieval failed with ${response.status}: ${JSON.stringify(body)}`,
@@ -184,6 +251,8 @@ async function fetchWithVcrAuthorization(
   let authorization = await vcrAuthorizationHeader(config);
   const headers = new Headers(init.headers);
   headers.set("Authorization", authorization);
+  const method = init.method ?? "GET";
+  let startedAt = Date.now();
   let response = await fetch(input, {
     ...init,
     headers,
@@ -192,6 +261,17 @@ async function fetchWithVcrAuthorization(
 
   const cloned = response.clone();
   const body = await cloned.json().catch(async () => cloned.text().catch(() => ""));
+  await logVonageApiCall({
+    config,
+    input,
+    method,
+    status: response.status,
+    ok: response.ok,
+    durationMs: Date.now() - startedAt,
+    credentialSource: "vcr",
+    requestId: response.headers.get("x-request-id"),
+    body,
+  });
   if (!isInvalidTokenResponse(response, body)) {
     return { response, body };
   }
@@ -200,15 +280,28 @@ async function fetchWithVcrAuthorization(
   authorization = await vcrAuthorizationHeader(config, { forceRefresh: true });
   const retryHeaders = new Headers(init.headers);
   retryHeaders.set("Authorization", authorization);
+  startedAt = Date.now();
   response = await fetch(input, {
     ...init,
     headers: retryHeaders,
     cache: "no-store",
   });
   const retryClone = response.clone();
+  const retryBody = await retryClone.json().catch(async () => retryClone.text().catch(() => ""));
+  await logVonageApiCall({
+    config,
+    input,
+    method,
+    status: response.status,
+    ok: response.ok,
+    durationMs: Date.now() - startedAt,
+    credentialSource: "vcr",
+    requestId: response.headers.get("x-request-id"),
+    body: retryBody,
+  });
   return {
     response,
-    body: await retryClone.json().catch(async () => retryClone.text().catch(() => "")),
+    body: retryBody,
   };
 }
 
@@ -245,10 +338,11 @@ function extractWabas(data: VonageWabaResponse) {
   );
 }
 
-async function fetchVonageWabaPage(authorization: string, page: number, credentialLabel: string) {
+async function fetchVonageWabaPage(config: VonageConfig, authorization: string, page: number, credentialLabel: string) {
   const url = new URL("https://api.nexmo.com/v1/channel-manager/whatsapp/wabas");
   url.searchParams.set("page_size", "100");
   url.searchParams.set("page", String(page));
+  const startedAt = Date.now();
   const response = await fetch(url, {
     headers: {
       Authorization: authorization,
@@ -259,6 +353,15 @@ async function fetchVonageWabaPage(authorization: string, page: number, credenti
 
   if (!response.ok) {
     const body = await response.text();
+    await logVonageApiCall({
+      config,
+      input: url,
+      status: response.status,
+      ok: false,
+      durationMs: Date.now() - startedAt,
+      requestId: response.headers.get("x-request-id"),
+      body,
+    });
     const requestId = response.headers.get("x-request-id");
     const details = body ? ` ${body}` : "";
     const tracking = requestId ? ` Request ID: ${requestId}.` : "";
@@ -266,6 +369,15 @@ async function fetchVonageWabaPage(authorization: string, page: number, credenti
   }
 
   const data = (await response.json()) as VonageWabaResponse;
+  await logVonageApiCall({
+    config,
+    input: url,
+    status: response.status,
+    ok: true,
+    durationMs: Date.now() - startedAt,
+    requestId: response.headers.get("x-request-id"),
+    body: data,
+  });
   return {
     data,
     wabas: extractWabas(data),
@@ -273,13 +385,13 @@ async function fetchVonageWabaPage(authorization: string, page: number, credenti
   };
 }
 
-async function fetchAllVonageWabaPages(authorization: string, credentialLabel: string) {
-  const firstPage = await fetchVonageWabaPage(authorization, 1, credentialLabel);
+async function fetchAllVonageWabaPages(config: VonageConfig, authorization: string, credentialLabel: string) {
+  const firstPage = await fetchVonageWabaPage(config, authorization, 1, credentialLabel);
   const totalPages = Math.max(1, Number(firstPage.data.total_pages ?? 1));
   const remainingPages = await Promise.all(
     Array.from(
       { length: totalPages - 1 },
-      (_, index) => fetchVonageWabaPage(authorization, index + 2, credentialLabel),
+      (_, index) => fetchVonageWabaPage(config, authorization, index + 2, credentialLabel),
     ),
   );
 
@@ -330,6 +442,7 @@ export async function fetchVonageWabas(): Promise<Waba[]> {
   let basicResult: Awaited<ReturnType<typeof fetchAllVonageWabaPages>> | null = null;
   try {
     basicResult = await fetchAllVonageWabaPages(
+      syncConfig,
       basicAuthorizationHeader(syncConfig),
       credentialLabel,
     );
@@ -526,16 +639,25 @@ function responseDetail(response: Response, body: Record<string, unknown>) {
 }
 
 async function auditChannelManager(
+  config: VonageConfig,
   authorization: string,
 ): Promise<AuditCheck & { totalItems: number | null }> {
-  const response = await fetch(
-    "https://api.nexmo.com/v1/channel-manager/whatsapp/wabas?page=1&page_size=1",
-    {
+  const url = "https://api.nexmo.com/v1/channel-manager/whatsapp/wabas?page=1&page_size=1";
+  const startedAt = Date.now();
+  const response = await fetch(url, {
       headers: { Authorization: authorization, Accept: "application/json" },
       cache: "no-store",
-    },
-  );
+    });
   const body = await safeJson(response);
+  await logVonageApiCall({
+    config,
+    input: url,
+    status: response.status,
+    ok: response.ok,
+    durationMs: Date.now() - startedAt,
+    requestId: response.headers.get("x-request-id"),
+    body,
+  });
   return {
     ok: response.ok,
     status: response.status,
@@ -549,11 +671,13 @@ export async function auditVonageConnection(): Promise<VonageConnectionAudit> {
   const config = await getVonageConfig();
   const syncConfig = channelManagerConfig(config);
   const apiKeySuffix = config.apiKey?.slice(-4) ?? null;
+  const channelManagerCredentialSource: "environment" | "master" =
+    syncConfig.credentialSource === "master" ? "master" : "environment";
   const environment = {
     name: config.environmentName ?? null,
     apiKeySuffix,
     channelManagerApiKeySuffix: syncConfig.apiKey?.slice(-4) ?? null,
-    channelManagerCredentialSource: syncConfig.credentialSource ?? "environment" as const,
+    channelManagerCredentialSource,
     apiKeyConfigured: Boolean(config.apiKey),
     apiSecretConfigured: Boolean(config.apiSecret),
     vcrCredentialConfigured: Boolean(config.vcrCredentialName),
@@ -585,11 +709,22 @@ export async function auditVonageConnection(): Promise<VonageConnectionAudit> {
 
   if (config.apiKey && config.apiSecret) {
     const authorization = basicAuthorizationHeader(config);
-    const balanceResponse = await fetch("https://rest.nexmo.com/account/get-balance", {
+    const balanceUrl = "https://rest.nexmo.com/account/get-balance";
+    const startedAt = Date.now();
+    const balanceResponse = await fetch(balanceUrl, {
       headers: { Authorization: authorization, Accept: "application/json" },
       cache: "no-store",
     });
     const balanceBody = await safeJson(balanceResponse);
+    await logVonageApiCall({
+      config,
+      input: balanceUrl,
+      status: balanceResponse.status,
+      ok: balanceResponse.ok,
+      durationMs: Date.now() - startedAt,
+      requestId: balanceResponse.headers.get("x-request-id"),
+      body: balanceBody,
+    });
     account = {
       ok: balanceResponse.ok,
       status: balanceResponse.status,
@@ -601,14 +736,14 @@ export async function auditVonageConnection(): Promise<VonageConnectionAudit> {
   }
 
   if (syncConfig.apiKey && syncConfig.apiSecret) {
-    channelManagerBasic = await auditChannelManager(basicAuthorizationHeader(syncConfig));
+    channelManagerBasic = await auditChannelManager(syncConfig, basicAuthorizationHeader(syncConfig));
   }
 
   if (config.vcrCredentialName) {
     try {
       const authorization = await vcrAuthorizationHeader(config);
       vcrToken = { ok: true, status: 200, detail: "VCR token retrieved." };
-      channelManagerVcrToken = await auditChannelManager(authorization);
+      channelManagerVcrToken = await auditChannelManager({ ...config, credentialSource: "vcr" }, authorization);
     } catch (error) {
       const detail = error instanceof Error ? error.message : "VCR token retrieval failed.";
       vcrToken = { ok: false, status: null, detail };
