@@ -217,7 +217,7 @@ export function MassDeploymentPlanner({
       const response = await fetch(`/api/mass-deployments/${encodeURIComponent(id)}/start`, { method: "POST" });
       const result = (await response.json()) as { message?: string };
       if (!response.ok) throw new Error(result.message || "Unable to start deployment.");
-      setMessage("Deployment marked as running. The next scheduler call will process up to 100 templates.");
+      setMessage("Deployment marked as running. The first batch starts now; the scheduler will process the next batches.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Unable to start deployment.");
     } finally {

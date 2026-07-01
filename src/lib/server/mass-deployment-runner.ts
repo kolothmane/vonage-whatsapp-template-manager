@@ -60,7 +60,7 @@ function summarizeDeployment(deployment: MassDeploymentRecord, items: MassDeploy
   };
 }
 
-export async function runMassDeploymentBatch(environmentId: string, requestedLimit = 100) {
+export async function runMassDeploymentBatch(environmentId: string, requestedLimit = 100, deploymentId?: string) {
   const limit = Math.max(1, Math.min(100, requestedLimit));
   const config = await getEnvironmentConfigById(environmentId);
   const keys = {
@@ -75,9 +75,11 @@ export async function runMassDeploymentBatch(environmentId: string, requestedLim
     readCollection<TemplateRecord>(keys.templates),
     readCollection<SubmissionErrorRecord>(keys.errors),
   ]);
-  const running = deployments.find((deployment) => deployment.status === "Running");
+  const running = deployments.find((deployment) =>
+    deployment.status === "Running" && (!deploymentId || deployment.id === deploymentId),
+  );
   if (!running) {
-    return { processed: 0, submitted: 0, failed: 0, message: "No running deployment." };
+    return { processed: 0, submitted: 0, failed: 0, message: deploymentId ? "Deployment is not running." : "No running deployment." };
   }
 
   const templateById = new Map(templates.map((template) => [template.id, template]));
