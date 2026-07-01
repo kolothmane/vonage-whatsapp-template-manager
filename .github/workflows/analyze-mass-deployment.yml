@@ -1,0 +1,32 @@
+name: Analyze mass deployment
+
+on:
+  workflow_dispatch:
+    inputs:
+      deployment_id:
+        description: "Mass deployment ID to analyze"
+        required: true
+        type: string
+
+jobs:
+  analyze-mass-deployment:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch deployment analysis
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          MASS_DEPLOYMENT_ENVIRONMENT_ID: ${{ secrets.MASS_DEPLOYMENT_ENVIRONMENT_ID }}
+          DEPLOYMENT_ID: ${{ inputs.deployment_id }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "CRON_SECRET is not configured."
+            exit 1
+          fi
+          if [ -z "$MASS_DEPLOYMENT_ENVIRONMENT_ID" ]; then
+            echo "MASS_DEPLOYMENT_ENVIRONMENT_ID is not configured."
+            exit 1
+          fi
+          curl -fsS \
+            -H "Authorization: Bearer ${CRON_SECRET}" \
+            "https://vonage-whatsapp-template-manager.vercel.app/api/cron/mass-deploy/analyze?environmentId=${MASS_DEPLOYMENT_ENVIRONMENT_ID}&deploymentId=${DEPLOYMENT_ID}" \
+            | jq .
