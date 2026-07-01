@@ -4,6 +4,8 @@ import { getActiveEnvironment } from "@/lib/server/environments";
 import { runMassDeploymentBatch } from "@/lib/server/mass-deployment-runner";
 import { startMassDeployment } from "@/lib/server/repository";
 
+export const maxDuration = 300;
+
 export async function POST(_request: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params;
   const environment = await getActiveEnvironment();

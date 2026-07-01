@@ -35,7 +35,7 @@ function errorMessage(error: unknown) {
 }
 
 function submissionErrorCode(message: string) {
-  return /already exists|duplicate|conflict|name.*taken|template.*exist/i.test(message)
+  return /already exists|duplicate|conflict|name.*taken|template.*exist|content.*language.*exists|language.*already exists/i.test(message)
     ? "DUPLICATE_TEMPLATE"
     : "VONAGE_SUBMISSION_FAILED";
 }
@@ -81,18 +81,56 @@ export async function runMassDeploymentBatch(environmentId: string, requestedLim
   if (!running) {
     return { processed: 0, submitted: 0, failed: 0, message: deploymentId ? "Deployment is not running." : "No running deployment." };
   }
+  const activeDeployment = running;
 
   const templateById = new Map(templates.map((template) => [template.id, template]));
   const queue = items
-    .filter((item) => item.deploymentId === running.id && item.status === "Queued")
-    .slice(0, Math.min(limit, running.batchSize));
-  const now = new Date().toISOString();
-  const updatedItems = new Map<string, MassDeploymentItem>();
-  const newErrors: SubmissionErrorRecord[] = [];
+    .filter((item) => item.deploymentId === activeDeployment.id && item.status === "Queued")
+    .slice(0, Math.min(limit, activeDeployment.batchSize));
+  let currentItems = items;
+  let currentDeployments = deployments;
+  let currentErrors = existingErrors;
   let submitted = 0;
   let failed = 0;
 
+  console.log("[mass-deployment:batch] started", {
+    deploymentId: activeDeployment.id,
+    environmentId,
+    requestedLimit,
+    queue: queue.length,
+  });
+
+  async function persistItem(update: MassDeploymentItem, error?: SubmissionErrorRecord) {
+    currentItems = currentItems.map((item) => (item.id === update.id ? update : item));
+    if (error) {
+      currentErrors = [error, ...currentErrors];
+    }
+    currentDeployments = currentDeployments.map((deployment) =>
+      deployment.id === activeDeployment.id ? summarizeDeployment(deployment, currentItems) : deployment,
+    );
+
+    await Promise.all([
+      getKv().set(keys.items, currentItems),
+      getKv().set(keys.deployments, currentDeployments),
+      error ? getKv().set(keys.errors, currentErrors) : Promise.resolve(),
+    ]);
+  }
+
   for (const item of queue) {
+    const latestDeployments = await readCollection<MassDeploymentRecord>(keys.deployments);
+    const latestDeployment = latestDeployments.find((deployment) => deployment.id === activeDeployment.id);
+    if (!latestDeployment || latestDeployment.status !== "Running") {
+      console.log("[mass-deployment:batch] stopped", {
+        deploymentId: activeDeployment.id,
+        status: latestDeployment?.status ?? "missing",
+        submitted,
+        failed,
+      });
+      break;
+    }
+    currentDeployments = latestDeployments;
+
+    const now = new Date().toISOString();
     const source = templateById.get(item.sourceTemplateId);
     if (!source) {
       failed += 1;
@@ -105,11 +143,10 @@ export async function runMassDeploymentBatch(environmentId: string, requestedLim
         errorCode: "SOURCE_TEMPLATE_NOT_FOUND",
         errorMessage: message,
       };
-      updatedItems.set(item.id, update);
-      newErrors.push({
+      const submissionError = {
         id: crypto.randomUUID(),
-        deploymentId: running.id,
-        deploymentName: running.name,
+        deploymentId: activeDeployment.id,
+        deploymentName: activeDeployment.name,
         itemId: item.id,
         wabaId: item.wabaId,
         wabaName: item.wabaName,
@@ -121,7 +158,8 @@ export async function runMassDeploymentBatch(environmentId: string, requestedLim
         errorCode: "SOURCE_TEMPLATE_NOT_FOUND",
         attempt: update.attempts,
         timestamp: now,
-      });
+      };
+      await persistItem(update, submissionError);
       continue;
     }
 
@@ -132,15 +170,22 @@ export async function runMassDeploymentBatch(environmentId: string, requestedLim
         generateVonagePayload(toNormalized(source)),
       );
       submitted += 1;
-      updatedItems.set(item.id, {
+      const update = {
         ...item,
-        status: "Submitted",
+        status: "Submitted" as const,
         attempts: item.attempts + 1,
         lastAttemptAt: now,
         submittedAt: now,
         vonageTemplateId: typeof response?.id === "string" ? response.id : undefined,
         errorCode: undefined,
         errorMessage: undefined,
+      };
+      await persistItem(update);
+      console.log("[mass-deployment:batch] submitted", {
+        deploymentId: activeDeployment.id,
+        itemId: item.id,
+        wabaId: item.wabaId,
+        templateName: item.templateName,
       });
     } catch (error) {
       failed += 1;
@@ -154,11 +199,10 @@ export async function runMassDeploymentBatch(environmentId: string, requestedLim
         errorCode: code,
         errorMessage: message,
       };
-      updatedItems.set(item.id, update);
-      newErrors.push({
+      const submissionError = {
         id: crypto.randomUUID(),
-        deploymentId: running.id,
-        deploymentName: running.name,
+        deploymentId: activeDeployment.id,
+        deploymentName: activeDeployment.name,
         itemId: item.id,
         wabaId: item.wabaId,
         wabaName: item.wabaName,
@@ -170,26 +214,24 @@ export async function runMassDeploymentBatch(environmentId: string, requestedLim
         errorCode: code,
         attempt: update.attempts,
         timestamp: now,
+      };
+      await persistItem(update, submissionError);
+      console.log("[mass-deployment:batch] failed", {
+        deploymentId: activeDeployment.id,
+        itemId: item.id,
+        wabaId: item.wabaId,
+        templateName: item.templateName,
+        errorCode: code,
+        errorMessage: message,
       });
     }
   }
 
-  const nextItems = items.map((item) => updatedItems.get(item.id) ?? item);
-  const nextDeployments = deployments.map((deployment) =>
-    deployment.id === running.id ? summarizeDeployment(deployment, nextItems) : deployment,
-  );
-
-  await Promise.all([
-    getKv().set(keys.items, nextItems),
-    getKv().set(keys.deployments, nextDeployments),
-    getKv().set(keys.errors, [...newErrors, ...existingErrors]),
-  ]);
-
   return {
-    deploymentId: running.id,
+    deploymentId: activeDeployment.id,
     processed: queue.length,
     submitted,
     failed,
-    remaining: nextItems.filter((item) => item.deploymentId === running.id && item.status === "Queued").length,
+    remaining: currentItems.filter((item) => item.deploymentId === activeDeployment.id && item.status === "Queued").length,
   };
 }
