@@ -1,8 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { Pause, Play, Plus, RotateCcw } from "lucide-react";
-import type { MassDeploymentItem, MassDeploymentRecord, SubmissionErrorRecord, TemplateRecord, Waba } from "@/lib/domain/types";
+import { useEffect, useMemo, useState } from "react";
+import { Eye, Pause, Play, Plus, RotateCcw, X } from "lucide-react";
+import type { ApiLogRecord, MassDeploymentItem, MassDeploymentRecord, SubmissionErrorRecord, TemplateRecord, Waba } from "@/lib/domain/types";
 import { suggestTemplatesForWaba } from "@/lib/domain/template-suggestions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,6 +11,11 @@ import { StatusBadge } from "@/components/status-badge";
 import { formatDateTime, formatNumber } from "@/lib/utils";
 
 type SelectionState = Record<string, string[]>;
+type DeploymentApiCallsState = {
+  deployment?: MassDeploymentRecord;
+  logs: ApiLogRecord[];
+  refreshedAt?: string;
+};
 
 function TemplateFilterSelect({
   label,
@@ -72,6 +77,9 @@ export function MassDeploymentPlanner({
   const [activeWabaId, setActiveWabaId] = useState(wabas[0]?.id ?? "");
   const [brandFilter, setBrandFilter] = useState("ALL");
   const [languageFilter, setLanguageFilter] = useState("ALL");
+  const [visibleApiCallsDeploymentId, setVisibleApiCallsDeploymentId] = useState("");
+  const [apiCalls, setApiCalls] = useState<DeploymentApiCallsState>({ logs: [] });
+  const [apiCallsMessage, setApiCallsMessage] = useState("");
 
   const plannedTotal = Object.values(selections).reduce((sum, ids) => sum + ids.length, 0);
   const recentSubmittedItems = useMemo(
@@ -107,6 +115,41 @@ export function MassDeploymentPlanner({
   const cronUrl = activeEnvironmentId
     ? `https://vonage-whatsapp-template-manager.vercel.app/api/cron/mass-deploy?environmentId=${encodeURIComponent(activeEnvironmentId)}&limit=100`
     : "";
+
+  const visibleApiCallsDeployment = useMemo(
+    () => deployments.find((deployment) => deployment.id === visibleApiCallsDeploymentId),
+    [deployments, visibleApiCallsDeploymentId],
+  );
+
+  useEffect(() => {
+    if (!visibleApiCallsDeploymentId) return;
+    let cancelled = false;
+
+    async function loadApiCalls() {
+      try {
+        const response = await fetch(`/api/mass-deployments/${encodeURIComponent(visibleApiCallsDeploymentId)}/api-calls`, {
+          cache: "no-store",
+        });
+        const result = (await response.json()) as { data?: DeploymentApiCallsState; message?: string };
+        if (!response.ok) throw new Error(result.message || "Unable to load API calls.");
+        if (!cancelled) {
+          setApiCalls(result.data ?? { logs: [] });
+          setApiCallsMessage("");
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setApiCallsMessage(error instanceof Error ? error.message : "Unable to load API calls.");
+        }
+      }
+    }
+
+    void loadApiCalls();
+    const interval = window.setInterval(() => void loadApiCalls(), 5000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [visibleApiCallsDeploymentId]);
 
   function toggle(wabaId: string, templateId: string) {
     setSelections((current) => {
@@ -195,6 +238,12 @@ export function MassDeploymentPlanner({
     } finally {
       setBusy(false);
     }
+  }
+
+  function showApiCalls(id: string) {
+    setVisibleApiCallsDeploymentId(id);
+    setApiCalls({ logs: [] });
+    setApiCallsMessage("");
   }
 
   return (
@@ -373,7 +422,7 @@ export function MassDeploymentPlanner({
                 <TableHead>Submitted</TableHead>
                 <TableHead>Failed</TableHead>
                 <TableHead>Updated</TableHead>
-                <TableHead className="w-40">Action</TableHead>
+                <TableHead className="w-56">Action</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -387,7 +436,7 @@ export function MassDeploymentPlanner({
                   <TableCell className="font-mono">{deployment.failed}</TableCell>
                   <TableCell>{formatDateTime(deployment.updatedAt)}</TableCell>
                   <TableCell>
-                    <div className="flex gap-2">
+                    <div className="flex flex-wrap gap-2">
                       <Button size="sm" disabled={!["Draft", "Paused"].includes(deployment.status) || busy} onClick={() => void startPlan(deployment.id)}>
                         <Play className="h-4 w-4" />
                         Start
@@ -396,6 +445,12 @@ export function MassDeploymentPlanner({
                         <Pause className="h-4 w-4" />
                         Pause
                       </Button>
+                      {deployment.status === "Running" ? (
+                        <Button size="sm" variant="outline" onClick={() => showApiCalls(deployment.id)}>
+                          <Eye className="h-4 w-4" />
+                          Voir appels
+                        </Button>
+                      ) : null}
                     </div>
                   </TableCell>
                 </TableRow>
@@ -409,6 +464,68 @@ export function MassDeploymentPlanner({
           </Table>
         </div>
       </section>
+
+      {visibleApiCallsDeployment ? (
+        <section className="rounded-md border">
+          <div className="flex flex-col gap-3 border-b p-4 md:flex-row md:items-center md:justify-between">
+            <div>
+              <h2 className="font-semibold">Appels API live</h2>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {visibleApiCallsDeployment.name} · rafraichi toutes les 5 secondes
+                {apiCalls.refreshedAt ? ` · dernier refresh ${formatDateTime(apiCalls.refreshedAt)}` : ""}
+              </p>
+            </div>
+            <Button type="button" variant="outline" size="sm" onClick={() => setVisibleApiCallsDeploymentId("")}>
+              <X className="h-4 w-4" />
+              Fermer
+            </Button>
+          </div>
+          {apiCallsMessage ? <div className="border-b p-4 text-sm text-red-700">{apiCallsMessage}</div> : null}
+          <div className="max-h-[420px] overflow-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Time</TableHead>
+                  <TableHead>Method</TableHead>
+                  <TableHead>Endpoint</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Duration</TableHead>
+                  <TableHead>WABA</TableHead>
+                  <TableHead>Response</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {apiCalls.logs.map((log) => (
+                  <TableRow key={log.id}>
+                    <TableCell className="whitespace-nowrap">{formatDateTime(log.timestamp)}</TableCell>
+                    <TableCell className="font-mono text-xs">{log.method}</TableCell>
+                    <TableCell className="max-w-80 truncate font-mono text-xs" title={log.endpoint}>
+                      {log.endpoint}
+                    </TableCell>
+                    <TableCell>
+                      <span className={log.ok ? "text-emerald-700" : "text-red-700"}>
+                        {log.status ?? "ERR"}
+                      </span>
+                    </TableCell>
+                    <TableCell className="font-mono text-xs">{log.durationMs} ms</TableCell>
+                    <TableCell className="font-mono text-xs">{log.wabaId ?? "-"}</TableCell>
+                    <TableCell className="max-w-96 truncate text-xs text-muted-foreground" title={log.errorMessage ?? log.responseSummary ?? ""}>
+                      {log.errorMessage ?? log.responseSummary ?? "-"}
+                    </TableCell>
+                  </TableRow>
+                ))}
+                {!apiCalls.logs.length ? (
+                  <TableRow>
+                    <TableCell colSpan={7} className="h-20 text-center text-muted-foreground">
+                      Aucun appel API récent pour ce deployment. Les appels apparaitront ici au prochain passage du scheduler.
+                    </TableCell>
+                  </TableRow>
+                ) : null}
+              </TableBody>
+            </Table>
+          </div>
+        </section>
+      ) : null}
 
       <section className="grid gap-4 lg:grid-cols-2">
         <div className="rounded-md border">
