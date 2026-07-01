@@ -322,6 +322,8 @@ export async function getEnvironmentConfigById(id: string) {
   const environment = (await allEnvironments()).find((item) => item.id === id && !item.archivedAt);
   if (!environment) throw new Error("Environment not found.");
   return {
+    environmentId: environment.id,
+    environmentName: environment.name,
     id: environment.id,
     name: environment.name,
     apiKey: decryptSecret(environment.apiKey),
