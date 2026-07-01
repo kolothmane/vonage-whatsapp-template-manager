@@ -18,6 +18,7 @@ export type VonageConfig = {
 
 const VCR_TOKEN_REFRESH_AFTER_SECONDS = 115 * 60;
 const VCR_TOKEN_EXPIRY_SAFETY_SECONDS = 5 * 60;
+const VONAGE_FETCH_TIMEOUT_MS = 30_000;
 
 async function getVonageConfig(): Promise<VonageConfig> {
   const environment = await getActiveEnvironment();
@@ -205,6 +206,7 @@ async function vcrAuthorizationHeader(config: VonageConfig, options?: { forceRef
         Authorization: basicAuthorizationHeader(config),
       },
       cache: "no-store",
+      signal: AbortSignal.timeout(VONAGE_FETCH_TIMEOUT_MS),
     });
   const body = (await response.json().catch(() => ({}))) as Record<string, unknown>;
   await logVonageApiCall({
@@ -257,6 +259,7 @@ async function fetchWithVcrAuthorization(
     ...init,
     headers,
     cache: "no-store",
+    signal: init.signal ?? AbortSignal.timeout(VONAGE_FETCH_TIMEOUT_MS),
   });
 
   const cloned = response.clone();
@@ -285,6 +288,7 @@ async function fetchWithVcrAuthorization(
     ...init,
     headers: retryHeaders,
     cache: "no-store",
+    signal: init.signal ?? AbortSignal.timeout(VONAGE_FETCH_TIMEOUT_MS),
   });
   const retryClone = response.clone();
   const retryBody = await retryClone.json().catch(async () => retryClone.text().catch(() => ""));

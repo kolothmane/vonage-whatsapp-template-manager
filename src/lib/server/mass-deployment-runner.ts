@@ -10,6 +10,9 @@ import { environmentKey, getEnvironmentConfigById } from "@/lib/server/environme
 import { getKv } from "@/lib/server/kv";
 import { createVonageTemplateForConfig, listVonageTemplatesForConfig } from "@/lib/server/vonage";
 
+const DEFAULT_BATCH_RUNTIME_BUDGET_MS = 240_000;
+const MAX_BATCH_RUNTIME_BUDGET_MS = 270_000;
+
 async function readCollection<T>(key: string): Promise<T[]> {
   return (await getKv().get<T[]>(key)) ?? [];
 }
@@ -65,6 +68,14 @@ function templateIdentity(name: string, language: string) {
 }
 
 export async function runMassDeploymentBatch(environmentId: string, requestedLimit = 100, deploymentId?: string) {
+  const startedAt = Date.now();
+  const runtimeBudgetMs = Math.max(
+    30_000,
+    Math.min(
+      Number(process.env.MASS_DEPLOYMENT_BATCH_RUNTIME_MS ?? DEFAULT_BATCH_RUNTIME_BUDGET_MS),
+      MAX_BATCH_RUNTIME_BUDGET_MS,
+    ),
+  );
   const limit = Math.max(1, Math.min(100, requestedLimit));
   const config = await getEnvironmentConfigById(environmentId);
   const keys = {
@@ -97,6 +108,7 @@ export async function runMassDeploymentBatch(environmentId: string, requestedLim
   let submitted = 0;
   let failed = 0;
   let skipped = 0;
+  let processed = 0;
   const existingTemplateIdentitiesByWaba = new Map<string, Set<string>>();
 
   console.log("[mass-deployment:batch] started", {
@@ -137,6 +149,19 @@ export async function runMassDeploymentBatch(environmentId: string, requestedLim
   }
 
   for (const item of queue) {
+    if (Date.now() - startedAt >= runtimeBudgetMs) {
+      console.log("[mass-deployment:batch] runtime-budget-reached", {
+        deploymentId: activeDeployment.id,
+        environmentId,
+        processed,
+        submitted,
+        failed,
+        skipped,
+        runtimeBudgetMs,
+      });
+      break;
+    }
+
     const latestDeployments = await readCollection<MassDeploymentRecord>(keys.deployments);
     const latestDeployment = latestDeployments.find((deployment) => deployment.id === activeDeployment.id);
     if (!latestDeployment || latestDeployment.status !== "Running") {
@@ -145,6 +170,7 @@ export async function runMassDeploymentBatch(environmentId: string, requestedLim
         status: latestDeployment?.status ?? "missing",
         submitted,
         failed,
+        skipped,
       });
       break;
     }
@@ -180,6 +206,7 @@ export async function runMassDeploymentBatch(environmentId: string, requestedLim
         timestamp: now,
       };
       await persistItem(update, submissionError);
+      processed += 1;
       continue;
     }
 
@@ -198,6 +225,7 @@ export async function runMassDeploymentBatch(environmentId: string, requestedLim
           errorMessage: `Skipped before submit: ${payload.name} already exists in ${payload.language} on this WABA.`,
         };
         await persistItem(update);
+        processed += 1;
         console.log("[mass-deployment:batch] skipped-existing", {
           deploymentId: activeDeployment.id,
           itemId: item.id,
@@ -222,6 +250,7 @@ export async function runMassDeploymentBatch(environmentId: string, requestedLim
         errorMessage: undefined,
       };
       await persistItem(update);
+      processed += 1;
       console.log("[mass-deployment:batch] submitted", {
         deploymentId: activeDeployment.id,
         itemId: item.id,
@@ -257,6 +286,7 @@ export async function runMassDeploymentBatch(environmentId: string, requestedLim
         timestamp: now,
       };
       await persistItem(update, submissionError);
+      processed += 1;
       console.log("[mass-deployment:batch] failed", {
         deploymentId: activeDeployment.id,
         itemId: item.id,
@@ -270,7 +300,7 @@ export async function runMassDeploymentBatch(environmentId: string, requestedLim
 
   return {
     deploymentId: activeDeployment.id,
-    processed: queue.length,
+    processed,
     submitted,
     failed,
     skipped,

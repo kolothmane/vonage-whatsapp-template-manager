@@ -231,19 +231,23 @@ export async function listApiLogs(limit = 25): Promise<ApiLogRecord[]> {
 
 export async function appendApiLog(entry: Omit<ApiLogRecord, "id" | "timestamp"> & { timestamp?: string }) {
   if (!hasKvConfig() || hasDatabaseUrl()) return;
-  let keys: Awaited<ReturnType<typeof kvKeys>>;
-  try {
-    keys = await kvKeys();
-  } catch {
-    return;
+  let apiLogsKey: string;
+  if (entry.environmentId) {
+    apiLogsKey = environmentKey(entry.environmentId, "api-logs");
+  } else {
+    try {
+      apiLogsKey = (await kvKeys()).apiLogs;
+    } catch {
+      return;
+    }
   }
-  const logs = await readKvCollection<ApiLogRecord>(keys.apiLogs);
+  const logs = await readKvCollection<ApiLogRecord>(apiLogsKey);
   const record: ApiLogRecord = {
     id: crypto.randomUUID(),
     timestamp: entry.timestamp ?? new Date().toISOString(),
     ...entry,
   };
-  await getKv().set(keys.apiLogs, [record, ...logs].slice(0, 500));
+  await getKv().set(apiLogsKey, [record, ...logs].slice(0, 500));
 }
 
 export async function saveWabas(wabas: Waba[]) {
