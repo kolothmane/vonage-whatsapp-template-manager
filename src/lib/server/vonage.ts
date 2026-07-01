@@ -8,6 +8,7 @@ export type VonageConfig = {
   environmentId?: string;
   apiKey?: string;
   apiSecret?: string;
+  credentialSource?: "environment" | "master";
   applicationId?: string;
   privateKey?: string;
   vcrCredentialName?: string;
@@ -34,13 +35,49 @@ async function getVonageConfig(): Promise<VonageConfig> {
   };
 }
 
+function configuredMasterCredentials() {
+  const apiKey =
+    process.env.MasterKey ??
+    process.env.MASTER_KEY ??
+    process.env.VONAGE_MASTER_KEY ??
+    process.env.VONAGE_MASTER_API_KEY;
+  const apiSecret =
+    process.env.MasterSecret ??
+    process.env.MASTER_SECRET ??
+    process.env.VONAGE_MASTER_SECRET ??
+    process.env.VONAGE_MASTER_API_SECRET;
+
+  if (!apiKey?.trim() || !apiSecret?.trim()) {
+    return null;
+  }
+
+  return {
+    apiKey: apiKey.trim(),
+    apiSecret: apiSecret.trim(),
+  };
+}
+
+function channelManagerConfig(config: VonageConfig): VonageConfig {
+  const master = configuredMasterCredentials();
+  if (!master) {
+    return { ...config, credentialSource: "environment" };
+  }
+
+  return {
+    ...config,
+    apiKey: master.apiKey,
+    apiSecret: master.apiSecret,
+    credentialSource: "master",
+  };
+}
+
 function basicAuth(config: VonageConfig) {
   return Buffer.from(`${config.apiKey!}:${config.apiSecret!}`).toString("base64");
 }
 
 function basicAuthorizationHeader(config: VonageConfig) {
   if (!config.apiKey || !config.apiSecret) {
-    throw new Error("VONAGE_API_KEY and VONAGE_API_SECRET are required for Channel Manager.");
+    throw new Error("Vonage API key and API secret are required.");
   }
 
   return `Basic ${basicAuth(config)}`;
@@ -288,11 +325,12 @@ async function fetchVerifiedManualWabas(): Promise<Waba[]> {
 
 export async function fetchVonageWabas(): Promise<Waba[]> {
   const config = await getVonageConfig();
-  const credentialLabel = `"${config.environmentName ?? "Unknown environment"}" using API key ending in ${config.apiKey?.slice(-4) ?? "n/a"}`;
+  const syncConfig = channelManagerConfig(config);
+  const credentialLabel = `"${config.environmentName ?? "Unknown environment"}" using ${syncConfig.credentialSource === "master" ? "master" : "environment"} API key ending in ${syncConfig.apiKey?.slice(-4) ?? "n/a"}`;
   let basicResult: Awaited<ReturnType<typeof fetchAllVonageWabaPages>> | null = null;
   try {
     basicResult = await fetchAllVonageWabaPages(
-      basicAuthorizationHeader(config),
+      basicAuthorizationHeader(syncConfig),
       credentialLabel,
     );
   } catch (error) {
@@ -312,7 +350,7 @@ export async function fetchVonageWabas(): Promise<Waba[]> {
   }
 
   if (selectedResult.rawWabas.length === 0) {
-    const accountLabel = `Vonage account API key ending in ${config.apiKey!.slice(-4)}`;
+    const accountLabel = `${syncConfig.credentialSource === "master" ? "master" : "environment"} Vonage API key ending in ${syncConfig.apiKey!.slice(-4)}`;
     const requestId = basicResult?.firstPage.requestId
       ? ` Request ID: ${basicResult.firstPage.requestId}.`
       : "";
@@ -460,6 +498,8 @@ export type VonageConnectionAudit = {
   environment: {
     name: string | null;
     apiKeySuffix: string | null;
+    channelManagerApiKeySuffix: string | null;
+    channelManagerCredentialSource: "environment" | "master";
     apiKeyConfigured: boolean;
     apiSecretConfigured: boolean;
     vcrCredentialConfigured: boolean;
@@ -507,10 +547,13 @@ async function auditChannelManager(
 
 export async function auditVonageConnection(): Promise<VonageConnectionAudit> {
   const config = await getVonageConfig();
+  const syncConfig = channelManagerConfig(config);
   const apiKeySuffix = config.apiKey?.slice(-4) ?? null;
   const environment = {
     name: config.environmentName ?? null,
     apiKeySuffix,
+    channelManagerApiKeySuffix: syncConfig.apiKey?.slice(-4) ?? null,
+    channelManagerCredentialSource: syncConfig.credentialSource ?? "environment" as const,
     apiKeyConfigured: Boolean(config.apiKey),
     apiSecretConfigured: Boolean(config.apiSecret),
     vcrCredentialConfigured: Boolean(config.vcrCredentialName),
@@ -554,8 +597,11 @@ export async function auditVonageConnection(): Promise<VonageConnectionAudit> {
       requestId: balanceResponse.headers.get("x-request-id") ?? undefined,
       apiKeySuffix,
     };
-    channelManagerBasic = await auditChannelManager(authorization);
 
+  }
+
+  if (syncConfig.apiKey && syncConfig.apiSecret) {
+    channelManagerBasic = await auditChannelManager(basicAuthorizationHeader(syncConfig));
   }
 
   if (config.vcrCredentialName) {
@@ -580,7 +626,7 @@ export async function auditVonageConnection(): Promise<VonageConnectionAudit> {
   if (!account.ok) {
     conclusion = `Vonage rejected the account credentials for ${environment.name ?? "the active environment"}. Check that the API key ending in ${apiKeySuffix ?? "n/a"} and its matching API secret are from the same Vonage account.`;
   } else if ((channelManagerBasic.totalItems ?? 0) > 0) {
-    conclusion = "WABAs are linked to the account and can be synchronized with Basic Auth.";
+    conclusion = `WABAs are visible through the ${syncConfig.credentialSource === "master" ? "master" : "environment"} API key and can be synchronized with Basic Auth.`;
   } else if ((channelManagerVcrToken.totalItems ?? 0) > 0) {
     conclusion =
       "WABAs are visible through the VCR token but not through the configured account credentials.";
