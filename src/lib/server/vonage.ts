@@ -525,7 +525,10 @@ export type VonageExistingTemplate = {
 };
 
 export async function listVonageTemplates(wabaId: string): Promise<VonageExistingTemplate[]> {
-  const config = await getVonageConfig();
+  return listVonageTemplatesForConfig(await getVonageConfig(), wabaId);
+}
+
+export async function listVonageTemplatesForConfig(config: VonageConfig, wabaId: string): Promise<VonageExistingTemplate[]> {
   let url: string | null =
     `https://api.nexmo.com/v2/whatsapp-manager/wabas/${encodeURIComponent(wabaId)}/templates?limit=500`;
   const templates: VonageExistingTemplate[] = [];

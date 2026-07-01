@@ -8,7 +8,7 @@ import type {
 } from "@/lib/domain/types";
 import { environmentKey, getEnvironmentConfigById } from "@/lib/server/environments";
 import { getKv } from "@/lib/server/kv";
-import { createVonageTemplateForConfig } from "@/lib/server/vonage";
+import { createVonageTemplateForConfig, listVonageTemplatesForConfig } from "@/lib/server/vonage";
 
 async function readCollection<T>(key: string): Promise<T[]> {
   return (await getKv().get<T[]>(key)) ?? [];
@@ -60,6 +60,10 @@ function summarizeDeployment(deployment: MassDeploymentRecord, items: MassDeploy
   };
 }
 
+function templateIdentity(name: string, language: string) {
+  return `${name.trim().toLowerCase()}::${language.trim().toLowerCase()}`;
+}
+
 export async function runMassDeploymentBatch(environmentId: string, requestedLimit = 100, deploymentId?: string) {
   const limit = Math.max(1, Math.min(100, requestedLimit));
   const config = await getEnvironmentConfigById(environmentId);
@@ -92,6 +96,8 @@ export async function runMassDeploymentBatch(environmentId: string, requestedLim
   let currentErrors = existingErrors;
   let submitted = 0;
   let failed = 0;
+  let skipped = 0;
+  const existingTemplateIdentitiesByWaba = new Map<string, Set<string>>();
 
   console.log("[mass-deployment:batch] started", {
     deploymentId: activeDeployment.id,
@@ -114,6 +120,20 @@ export async function runMassDeploymentBatch(environmentId: string, requestedLim
       getKv().set(keys.deployments, currentDeployments),
       error ? getKv().set(keys.errors, currentErrors) : Promise.resolve(),
     ]);
+  }
+
+  async function getExistingTemplateIdentities(wabaId: string) {
+    const cached = existingTemplateIdentitiesByWaba.get(wabaId);
+    if (cached) return cached;
+
+    const existingTemplates = await listVonageTemplatesForConfig(config, wabaId);
+    const identities = new Set(
+      existingTemplates
+        .filter((template) => template.name && template.language)
+        .map((template) => templateIdentity(template.name, template.language)),
+    );
+    existingTemplateIdentitiesByWaba.set(wabaId, identities);
+    return identities;
   }
 
   for (const item of queue) {
@@ -164,11 +184,32 @@ export async function runMassDeploymentBatch(environmentId: string, requestedLim
     }
 
     try {
-      const response = await createVonageTemplateForConfig(
-        config,
-        item.wabaId,
-        generateVonagePayload(toNormalized(source)),
-      );
+      const payload = generateVonagePayload(toNormalized(source));
+      const existingTemplateIdentities = await getExistingTemplateIdentities(item.wabaId);
+      const identity = templateIdentity(payload.name, payload.language);
+      if (existingTemplateIdentities.has(identity)) {
+        skipped += 1;
+        const update = {
+          ...item,
+          status: "Skipped" as const,
+          attempts: item.attempts,
+          lastAttemptAt: now,
+          errorCode: "TEMPLATE_ALREADY_EXISTS",
+          errorMessage: `Skipped before submit: ${payload.name} already exists in ${payload.language} on this WABA.`,
+        };
+        await persistItem(update);
+        console.log("[mass-deployment:batch] skipped-existing", {
+          deploymentId: activeDeployment.id,
+          itemId: item.id,
+          wabaId: item.wabaId,
+          templateName: item.templateName,
+          language: payload.language,
+        });
+        continue;
+      }
+
+      const response = await createVonageTemplateForConfig(config, item.wabaId, payload);
+      existingTemplateIdentities.add(identity);
       submitted += 1;
       const update = {
         ...item,
@@ -232,6 +273,7 @@ export async function runMassDeploymentBatch(environmentId: string, requestedLim
     processed: queue.length,
     submitted,
     failed,
+    skipped,
     remaining: currentItems.filter((item) => item.deploymentId === activeDeployment.id && item.status === "Queued").length,
   };
 }
