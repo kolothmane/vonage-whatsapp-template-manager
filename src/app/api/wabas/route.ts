@@ -11,7 +11,8 @@ export async function POST() {
   try {
     const data = await fetchVonageWabas();
     await saveWabas(data);
-    return NextResponse.json({ data, message: "WABAs retrieved from Vonage." });
+    const visibleWabas = await listWabas();
+    return NextResponse.json({ data: visibleWabas, message: "WABAs retrieved from Vonage." });
   } catch (error) {
     return NextResponse.json(
       {

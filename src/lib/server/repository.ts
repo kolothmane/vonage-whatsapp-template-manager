@@ -82,7 +82,10 @@ export async function listWabas(): Promise<Waba[]> {
         lastSyncAt: existing?.lastSyncAt ?? new Date().toISOString(),
       });
     }
-    return [...wabasById.values()].sort((a, b) => a.name.localeCompare(b.name));
+    const visibleWabas = manualWabas.length
+      ? manualWabas.map((manualWaba) => wabasById.get(manualWaba.id)).filter((waba): waba is Waba => Boolean(waba))
+      : [...wabasById.values()];
+    return visibleWabas.sort((a, b) => a.name.localeCompare(b.name));
   }
 
   const prisma = getPrisma();
