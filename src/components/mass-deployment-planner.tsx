@@ -16,6 +16,18 @@ type DeploymentApiCallsState = {
   logs: ApiLogRecord[];
   refreshedAt?: string;
 };
+type ExistingTemplateSummary = {
+  id: string;
+  name: string;
+  language: string;
+  category: string;
+  status: string;
+};
+type ExistingTemplateState =
+  | { status: "idle"; identities: Set<string>; message?: string }
+  | { status: "loading"; identities: Set<string>; message?: string }
+  | { status: "loaded"; identities: Set<string>; message?: string }
+  | { status: "error"; identities: Set<string>; message: string };
 
 const GITHUB_CRON_INTERVAL_HOURS = 2;
 
@@ -65,6 +77,10 @@ function formatDuration(ms: number) {
   return `${minutes}m ${seconds.toString().padStart(2, "0")}s`;
 }
 
+function templateIdentity(name: string, language: string) {
+  return `${name.trim().toLowerCase()}::${language.trim().toLowerCase()}`;
+}
+
 export function MassDeploymentPlanner({
   wabas,
   templates,
@@ -101,6 +117,7 @@ export function MassDeploymentPlanner({
   const [apiCalls, setApiCalls] = useState<DeploymentApiCallsState>({ logs: [] });
   const [apiCallsMessage, setApiCallsMessage] = useState("");
   const [now, setNow] = useState(() => new Date());
+  const [existingTemplatesByWaba, setExistingTemplatesByWaba] = useState<Record<string, ExistingTemplateState>>({});
 
   const plannedTotal = Object.values(selections).reduce((sum, ids) => sum + ids.length, 0);
   const recentSubmittedItems = useMemo(
@@ -178,6 +195,55 @@ export function MassDeploymentPlanner({
     const interval = window.setInterval(() => setNow(new Date()), 1000);
     return () => window.clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    if (!activeWaba?.id) return;
+    const currentState = existingTemplatesByWaba[activeWaba.id];
+    if (currentState?.status === "loaded" || currentState?.status === "loading") return;
+
+    let cancelled = false;
+    setExistingTemplatesByWaba((current) => ({
+      ...current,
+      [activeWaba.id]: { status: "loading", identities: current[activeWaba.id]?.identities ?? new Set() },
+    }));
+
+    async function loadExistingTemplates() {
+      try {
+        const response = await fetch(`/api/wabas/${encodeURIComponent(activeWaba.id)}/existing-templates`, {
+          cache: "no-store",
+        });
+        const result = (await response.json()) as { data?: ExistingTemplateSummary[]; message?: string };
+        if (!response.ok) throw new Error(result.message || "Unable to load existing templates.");
+        const identities = new Set(
+          (result.data ?? [])
+            .filter((template) => template.name && template.language)
+            .map((template) => templateIdentity(template.name, template.language)),
+        );
+        if (!cancelled) {
+          setExistingTemplatesByWaba((current) => ({
+            ...current,
+            [activeWaba.id]: { status: "loaded", identities },
+          }));
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setExistingTemplatesByWaba((current) => ({
+            ...current,
+            [activeWaba.id]: {
+              status: "error",
+              identities: current[activeWaba.id]?.identities ?? new Set(),
+              message: error instanceof Error ? error.message : "Unable to load existing templates.",
+            },
+          }));
+        }
+      }
+    }
+
+    void loadExistingTemplates();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeWaba?.id, existingTemplatesByWaba]);
 
   function toggle(wabaId: string, templateId: string) {
     setSelections((current) => {
@@ -340,6 +406,7 @@ export function MassDeploymentPlanner({
         {activeWaba ? (() => {
           const suggested = new Set(suggestTemplatesForWaba(activeWaba, catalogTemplates).map((template) => template.id));
           const selected = new Set(selections[activeWaba.id] ?? []);
+          const existingTemplateState = existingTemplatesByWaba[activeWaba.id] ?? { status: "idle", identities: new Set() };
           const templateQuery = templateQueries[activeWaba.id] ?? "";
           const matchingTemplates = catalogTemplates
             .filter((template) =>
@@ -387,6 +454,8 @@ export function MassDeploymentPlanner({
               </div>
               <div className="border-b px-4 py-2 text-xs text-muted-foreground">
                 Showing {formatNumber(visibleTemplates.length)} of {formatNumber(matchCount)} matching template(s). Use search to narrow large catalogs.
+                {existingTemplateState.status === "loading" ? " Checking existing templates on this WABA..." : ""}
+                {existingTemplateState.status === "error" ? ` Existing template check failed: ${existingTemplateState.message}` : ""}
               </div>
               <div className="max-h-80 overflow-auto">
                 <Table>
@@ -400,23 +469,42 @@ export function MassDeploymentPlanner({
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {visibleTemplates.map((template) => (
-                      <TableRow key={`${activeWaba.id}-${template.id}`}>
-                        <TableCell>
-                          <input
-                            aria-label={`Use ${template.generatedName} for ${activeWaba.name}`}
-                            checked={selected.has(template.id)}
-                            className="h-4 w-4"
-                            type="checkbox"
-                            onChange={() => toggle(activeWaba.id, template.id)}
-                          />
-                        </TableCell>
-                        <TableCell className="font-mono text-xs">{template.generatedName}</TableCell>
-                        <TableCell>{template.brand}</TableCell>
-                        <TableCell>{template.language}</TableCell>
-                        <TableCell>{suggested.has(template.id) ? "Suggested" : "-"}</TableCell>
-                      </TableRow>
-                    ))}
+                    {visibleTemplates.map((template) => {
+                      const alreadyExists = existingTemplateState.identities.has(
+                        templateIdentity(template.generatedName, template.whatsappLanguage),
+                      );
+                      return (
+                        <TableRow key={`${activeWaba.id}-${template.id}`}>
+                          <TableCell>
+                            <input
+                              aria-label={`Use ${template.generatedName} for ${activeWaba.name}`}
+                              checked={selected.has(template.id)}
+                              className="h-4 w-4"
+                              type="checkbox"
+                              onChange={() => toggle(activeWaba.id, template.id)}
+                            />
+                          </TableCell>
+                          <TableCell className="font-mono text-xs">{template.generatedName}</TableCell>
+                          <TableCell>{template.brand}</TableCell>
+                          <TableCell>{template.language}</TableCell>
+                          <TableCell>
+                            <div className="flex flex-wrap gap-1.5">
+                              {alreadyExists ? (
+                                <span className="rounded border border-amber-300 bg-amber-50 px-2 py-0.5 text-xs text-amber-800">
+                                  Already exists
+                                </span>
+                              ) : null}
+                              {suggested.has(template.id) ? (
+                                <span className="rounded border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-xs text-emerald-800">
+                                  Suggested
+                                </span>
+                              ) : null}
+                              {!alreadyExists && !suggested.has(template.id) ? "-" : null}
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
                     {!visibleTemplates.length ? (
                       <TableRow>
                         <TableCell colSpan={5} className="h-16 text-center text-muted-foreground">
